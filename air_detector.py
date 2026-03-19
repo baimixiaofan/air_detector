@@ -104,8 +104,8 @@ class AirQualitySimulator:
                 json_data.append(data_dict)
             
             # 保存到JSON文件
-            with open(self.output_file, 'w', encoding='utf-8') as f:
-                json.dump(json_data, f, ensure_ascii=False, indent=2)
+            with open(self.output_file, 'w') as f:
+                json.dump(json_data, f)
         except Exception as e:
             print(f"保存JSON文件时出错：{e}")
 
