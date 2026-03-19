@@ -181,7 +181,6 @@ class AirQualitySimulator:
             data = [point[col_index] for point in self.simulated_data]
             self.lines[col].set_data(range(len(data)), data)
         
-        # 调整坐标轴
         if self.simulated_data:
             self.ax.set_xlim(0, len(self.simulated_data) - 1)
             all_data = [val for point in self.simulated_data for val in point]
