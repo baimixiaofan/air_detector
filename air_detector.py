@@ -6,13 +6,14 @@ import time
 import argparse
 import threading
 import queue
+import requests
 
 # 时间间隔变量（毫秒）
 # 可以直接修改这个值来调整默认的生成数据时间间隔
 DATA_GENERATION_INTERVAL = 1000  # 默认1秒生成一次数据
 
 class AirQualitySimulator:
-    def __init__(self, input_file, output_file, frequency=DATA_GENERATION_INTERVAL, max_records=100):
+    def __init__(self, input_file, output_file, frequency=DATA_GENERATION_INTERVAL, max_records=100, api_endpoint=None, api_headers=None):
         """
         空气质量数据模拟器
         
@@ -21,11 +22,15 @@ class AirQualitySimulator:
             output_file: 输出JSON文件路径
             frequency: 数据生成频率（毫秒）
             max_records: 保存的最大记录数
+            api_endpoint: API端点URL，用于发送HTTP请求
+            api_headers: API请求头
         """
         self.input_file = input_file
         self.output_file = output_file
         self.frequency = frequency
         self.max_records = max_records
+        self.api_endpoint = api_endpoint
+        self.api_headers = api_headers or {}
         
         # 读取数据并计算统计量
         try:
@@ -131,6 +136,9 @@ class AirQualitySimulator:
                 # 保存数据
                 self.save_to_json()
                 
+                # 发送HTTP请求
+                self.send_http_request()
+                
                 # 标记任务完成
                 self.data_queue.task_done()
             except queue.Empty:
@@ -152,6 +160,52 @@ class AirQualitySimulator:
             self.save_thread.join(timeout=2)
         
         print("所有线程已停止")
+    
+    def send_http_request(self):
+        """发送HTTP请求"""
+        if not self.api_endpoint:
+            return  # 如果没有设置API端点，则不发送请求
+        
+        try:
+            # 获取最新数据
+            with threading.Lock():
+                if not self.timestamps or not self.simulated_data:
+                    return
+                
+                # 获取最新的数据点
+                latest_timestamp = self.timestamps[-1]
+                latest_data = self.simulated_data[-1]
+            
+            # 构建要发送的数据
+            payload = {
+                "timestamp": latest_timestamp,
+                "data": {}
+            }
+            for i, col in enumerate(self.cols):
+                payload["data"][col] = latest_data[i]
+            
+            # 发送POST请求
+            response = requests.post(
+                self.api_endpoint,
+                json=payload,
+                headers=self.api_headers,
+                timeout=10  # 设置超时时间为10秒
+            )
+            
+            # 检查响应状态
+            if response.status_code in [200, 201, 202]:
+                print(f"HTTP请求发送成功，状态码：{response.status_code}")
+            else:
+                print(f"HTTP请求发送失败，状态码：{response.status_code}，响应：{response.text}")
+        
+        except requests.exceptions.Timeout:
+            print(f"HTTP请求超时，端点：{self.api_endpoint}")
+        except requests.exceptions.ConnectionError:
+            print(f"连接错误，无法连接到API端点：{self.api_endpoint}")
+        except requests.exceptions.RequestException as e:
+            print(f"发送HTTP请求时发生错误：{e}")
+        except Exception as e:
+            print(f"发送HTTP请求时发生未知错误：{e}")
     
     def save_to_json(self):
         """保存数据到JSON文件"""
@@ -182,15 +236,26 @@ if __name__ == "__main__":
     parser.add_argument('--output', default='simulated_air_data.json', help='输出JSON文件路径')
     parser.add_argument('--frequency', type=int, default=DATA_GENERATION_INTERVAL, help='数据生成频率（毫秒）')
     parser.add_argument('--max-records', type=int, default=100, help='保存的最大记录数')
+    parser.add_argument('--api-endpoint', help='API端点URL，用于发送HTTP请求')
+    parser.add_argument('--api-header', action='append', help='API请求头，格式：key=value')
     
     args = parser.parse_args()
+    
+    # 解析API请求头
+    api_headers = {}
+    if args.api_header:
+        for header in args.api_header:
+            key, value = header.split('=', 1)
+            api_headers[key.strip()] = value.strip()
     
     # 创建模拟器实例并开始生成数据
     simulator = AirQualitySimulator(
         input_file=args.input,
         output_file=args.output,
         frequency=args.frequency,
-        max_records=args.max_records
+        max_records=args.max_records,
+        api_endpoint=args.api_endpoint,
+        api_headers=api_headers
     )
     
     try:
