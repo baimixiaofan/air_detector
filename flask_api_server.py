@@ -3,7 +3,18 @@ import json
 import logging
 from datetime import datetime
 import os
+import redis
 from flask import Flask, request, jsonify
+
+# 建立 Redis 连接
+try:
+    redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+    # 测试连接
+    redis_client.ping()
+    print("成功连接到 Redis 服务器")
+except redis.ConnectionError:
+    print("无法连接到 Redis 服务器，请确保 Redis 已在 localhost:6379 上运行")
+    redis_client = None
 
 app = Flask(__name__)
 
@@ -17,37 +28,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
-
-def save_data_to_file(data):
-    """保存数据到JSON文件"""
-    filename = f"air_quality_data_{datetime.now().strftime('%Y%m%d')}.json"
-    
-    # 准备保存的数据格式
-    record = {
-        "timestamp": datetime.now().isoformat(),
-        "received_at": data.get('timestamp'),
-        "data": data.get('data'),
-        "client_ip": request.remote_addr
-    }
-    
-    # 读取现有数据或创建新列表
-    if os.path.exists(filename):
-        with open(filename, 'r', encoding='utf-8') as f:
-            try:
-                records = json.load(f)
-            except json.JSONDecodeError:
-                records = []
-    else:
-        records = []
-    
-    # 添加新记录
-    records.append(record)
-    
-    # 写回文件
-    with open(filename, 'w', encoding='utf-8') as f:
-        json.dump(records, f, ensure_ascii=False, indent=2)
-    
-    return filename
 
 @app.route('/api/air-quality', methods=['POST'])
 def receive_air_quality_data():
@@ -65,19 +45,35 @@ def receive_air_quality_data():
         logger.info(f"[{request_time}] 来源IP: {client_ip} - 时间戳: {data.get('timestamp', 'N/A')}")
         logger.info(f"[{request_time}] 来源IP: {client_ip} - 数据: {data.get('data', {})})")
         
-        # 保存数据到文件
-        filename = save_data_to_file(data)
-        
-        logger.info(f"[{request_time}] 来源IP: {client_ip} - 数据已保存到文件: {filename}")
-        
-        # 返回成功响应
-        response_data = {
-            "status": "success",
-            "message": "数据接收并保存成功",
-            "received_at": datetime.now().isoformat(),
-            "saved_to": filename,
-            "data": data
-        }
+        # 将数据推入 Redis 消息队列
+        if redis_client:
+            # 准备要推送的数据格式
+            record = {
+                "timestamp": datetime.now().isoformat(),
+                "received_at": data.get('timestamp'),
+                "data": data.get('data'),
+                "client_ip": request.remote_addr
+            }
+            # 推送数据到 Redis 列表
+            redis_client.lpush('data_queue', json.dumps(record))
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - 数据已推入 Redis 队列: data_queue")
+            
+            # 返回成功响应
+            response_data = {
+                "status": "success",
+                "message": "数据接收并推入 Redis 队列成功",
+                "received_at": datetime.now().isoformat(),
+                "queued_to": "data_queue",
+                "data": data
+            }
+        else:
+            # 如果无法连接 Redis，返回错误
+            error_response = {
+                "status": "error",
+                "message": "无法连接到 Redis 服务器"
+            }
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - Redis 连接失败，请求处理失败")
+            return jsonify(error_response), 500
         
         logger.info(f"[{request_time}] 来源IP: {client_ip} - 请求处理成功")
         return jsonify(response_data), 200
