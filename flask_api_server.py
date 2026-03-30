@@ -51,19 +51,24 @@ def save_data_to_file(data):
 
 @app.route('/api/air-quality', methods=['POST'])
 def receive_air_quality_data():
+    # 记录请求开始时间和来源IP
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到请求 - 来源IP: {client_ip}")
+    
     try:
         # 获取POST请求中的JSON数据
         data = request.json
-        client_ip = request.remote_addr
         
-        logger.info(f"接收到空气质量数据，客户端IP: {client_ip}")
-        logger.info(f"时间戳: {data.get('timestamp', 'N/A')}")
-        logger.info(f"数据: {data.get('data', {})})")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 接收到空气质量数据")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 时间戳: {data.get('timestamp', 'N/A')}")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 数据: {data.get('data', {})})")
         
         # 保存数据到文件
         filename = save_data_to_file(data)
         
-        logger.info(f"数据已保存到文件: {filename}")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 数据已保存到文件: {filename}")
         
         # 返回成功响应
         response_data = {
@@ -74,18 +79,20 @@ def receive_air_quality_data():
             "data": data
         }
         
-        logger.info(f"向客户端 {client_ip} 返回成功响应")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 请求处理成功")
         return jsonify(response_data), 200
         
     except Exception as e:
-        client_ip = request.remote_addr
-        logger.error(f"处理来自 {client_ip} 的数据时出错: {str(e)}")
+        # 记录错误情况
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - 请求处理失败: {str(e)}")
+        
         error_response = {
             "status": "error",
             "message": f"处理数据时出错：{str(e)}"
         }
         
-        logger.info(f"向客户端 {client_ip} 返回错误响应: {str(e)}")
+        logger.info(f"[{error_time}] 来源IP: {client_ip} - 返回错误响应")
         return jsonify(error_response), 400
 
 if __name__ == '__main__':
