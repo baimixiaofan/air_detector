@@ -11,7 +11,8 @@ for i in $(seq 1 $NUM); do
     OUTPUT_DIR="${OUTPUT_BASE}/${CONTAINER_NAME}"
     mkdir -p $OUTPUT_DIR
     echo "Starting $CONTAINER_NAME ..."
-    docker run -d \
+    # 修改点：将 docker 替换为 /usr/bin/docker
+    /usr/bin/docker run -d \
         --name $CONTAINER_NAME \
         -v $OUTPUT_DIR:/app/output \
         $IMAGE \
