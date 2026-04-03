@@ -307,7 +307,7 @@ def get_simulator_status():
 @app.route('/api/start_simulator', methods=['POST'])
 def start_simulator():
     """
-    启动一个新的模拟器容器
+    启动一个新的模拟器容器（通过调用服务器上 /root/air_detector/ 目录下的.sh脚本）
     """
     request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     client_ip = request.remote_addr
@@ -315,53 +315,73 @@ def start_simulator():
     logger.info(f"[{request_time}] 收到启动模拟器请求 - 来源IP: {client_ip}")
     
     try:
-        # 获取当前所有以 sim 开头的容器
+        # 指定服务器上 .sh 文件的路径
+        server_scripts_dir = '/root/air_detector/'
+        
+        # 检查目录是否存在
+        if not os.path.exists(server_scripts_dir):
+            error_msg = f"服务器脚本目录不存在: {server_scripts_dir}"
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+            return jsonify({
+                "status": "error",
+                "message": error_msg
+            }), 500
+        
+        # 搜索 /root/air_detector/ 目录下的所有 .sh 文件
+        sh_files = []
+        for file in os.listdir(server_scripts_dir):
+            if file.endswith('.sh'):
+                sh_files.append(file)
+        
+        if not sh_files:
+            error_msg = f"在 {server_scripts_dir} 目录下未找到 .sh 脚本文件"
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+            return jsonify({
+                "status": "error",
+                "message": error_msg
+            }), 500
+        
+        # 默认使用第一个找到的 .sh 文件，或查找特定的启动脚本
+        script_name = None
+        for file_name in sh_files:
+            if 'start' in file_name.lower() or 'launch' in file_name.lower() or 'run' in file_name.lower():
+                script_name = file_name
+                break
+        
+        # 如果没找到特定名称的脚本，使用第一个找到的
+        if not script_name:
+            script_name = sh_files[0]
+        
+        script_path = os.path.join(server_scripts_dir, script_name)
+        
+        logger.info(f"找到启动脚本: {script_path}")
+        
+        # 执行 .sh 脚本
         result = subprocess.run(
-            ['docker', 'ps', '--format', '{{.Names}}'],
+            ['bash', script_path],
             capture_output=True,
             text=True,
-            check=True
+            cwd=server_scripts_dir  # 设置工作目录为脚本目录
         )
         
-        # 解析容器名列表
-        container_names = result.stdout.strip().split('\n') if result.stdout.strip() else []
-        
-        # 过滤出以 sim 开头的容器
-        sim_containers = [name for name in container_names if name.startswith('sim')]
-
-        # 找到下一个可用的编号
-        next_num = 1
-        while f"sim{next_num}" in sim_containers:
-            next_num += 1
-        
-        container_name = f"sim{next_num}"
-        
-        # 构建启动命令
-        cmd = f"docker run -d --name {container_name} -e SIMULATOR_ID={container_name} --network host simulator-image"
-        
-        # 执行启动命令
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        
-        container_id = result.stdout.strip()
-        
-        logger.info(f"[{request_time}] 来源IP: {client_ip} - 模拟器容器 {container_name} ({container_id[:12]}) 启动成功")
-        
-        return jsonify({
-            "status": "success",
-            "message": f"模拟器容器 {container_name} 启动成功",
-            "container_name": container_name,
-            "container_id": container_id
-        }), 200
+        if result.returncode == 0:
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - 模拟器启动脚本执行成功")
+            return jsonify({
+                "status": "success",
+                "message": f"模拟器启动脚本 {script_name} 执行成功",
+                "output": result.stdout
+            }), 200
+        else:
+            error_msg = f"启动脚本执行失败: {result.stderr}"
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+            return jsonify({
+                "status": "error",
+                "message": error_msg
+            }), 500
         
     except subprocess.CalledProcessError as e:
         error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        error_msg = f"启动模拟器容器失败: {e.stderr if e.stderr else str(e)}"
+        error_msg = f"启动模拟器脚本失败: {e.stderr if e.stderr else str(e)}"
         logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
         
         return jsonify({
@@ -391,7 +411,7 @@ def stop_all_simulators():
     
     try:
         # 停止所有以 sim 开头的容器
-        stop_cmd = "docker stop $(docker ps -q --filter name=sim)"
+        stop_cmd = "docker stop $(docker ps -q --filter name=sim*)"
         stop_result = subprocess.run(
             stop_cmd,
             shell=True,
@@ -400,7 +420,7 @@ def stop_all_simulators():
         )
         
         # 删除所有以 sim 开头的容器（包括已停止的）
-        remove_cmd = "docker rm $(docker ps -aq --filter name=sim)"
+        remove_cmd = "docker rm $(docker ps -aq --filter name=sim*)"
         remove_result = subprocess.run(
             remove_cmd,
             shell=True,
