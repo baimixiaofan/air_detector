@@ -328,7 +328,7 @@ def start_simulator():
         
         # 过滤出以 sim 开头的容器
         sim_containers = [name for name in container_names if name.startswith('sim')]
-        
+
         # 找到下一个可用的编号
         next_num = 1
         while f"sim{next_num}" in sim_containers:
@@ -439,111 +439,6 @@ def stop_all_simulators():
             "status": "error",
             "message": error_msg
         }), 500
-
-@app.route('/api/status', methods=['GET'])
-def get_simulator_status():
-    """
-    获取所有模拟器的运行状态
-    """
-    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    client_ip = request.remote_addr
-    
-    logger.info(f"[{request_time}] 收到状态查询请求 - 来源IP: {client_ip}")
-    
-    try:
-        if not redis_client:
-            error_response = {
-                "status": "error",
-                "message": "无法连接到 Redis 服务器"
-            }
-            logger.error(f"[{request_time}] 来源IP: {client_ip} - Redis 连接失败")
-            return jsonify(error_response), 500
-        
-        # 从 Redis 读取所有模拟器统计数据
-        simulator_data = redis_client.hgetall('simulator_stats')
-        
-        current_time = time.time()
-        timeout_threshold = 15  # 15秒超时
-        
-        total_count = 0
-        online_count = 0
-        simulators_info = {}
-        
-        for sim_id, json_data in simulator_data.items():
-            try:
-                # 解析JSON数据
-                stats = json.loads(json_data)
-                
-                last_update = float(stats.get('last_update', 0))
-                data_sent = int(stats.get('data_sent', 0))
-                status = stats.get('status', 'unknown')
-                
-                # 检查是否超时
-                time_diff = current_time - last_update
-                if time_diff > timeout_threshold:
-                    effective_status = 'offline'
-                else:
-                    effective_status = status
-                    if status == 'running':
-                        online_count += 1
-                
-                # 转换时间戳为可读格式
-                readable_time = datetime.fromtimestamp(last_update).strftime('%Y-%m-%d %H:%M:%S')
-                
-                simulators_info[sim_id] = {
-                    'status': effective_status,
-                    'data_sent': data_sent,
-                    'last_update': readable_time,
-                    'time_since_update': round(time_diff, 2)
-                }
-                
-                total_count += 1
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"解析模拟器 {sim_id} 的统计数据时出错: {str(e)}, 原始数据: {json_data}")
-                continue
-            except (ValueError, TypeError) as e:
-                logger.error(f"处理模拟器 {sim_id} 的统计数据时出错: {str(e)}, 数据: {json_data}")
-                continue
-        
-        response_data = {
-            "total": total_count,
-            "online": online_count,
-            "offline": total_count - online_count,
-            "simulators": simulators_info,
-            "queried_at": datetime.now().isoformat()
-        }
-        
-        logger.info(f"[{request_time}] 来源IP: {client_ip} - 状态查询成功，共 {total_count} 个模拟器，{online_count} 个在线")
-        return jsonify(response_data), 200
-        
-    except Exception as e:
-        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        logger.error(f"[{error_time}] 来源IP: {client_ip} - 查询状态时出错: {str(e)}")
-        
-        error_response = {
-            "status": "error",
-            "message": f"查询状态时出错: {str(e)}"
-        }
-        
-        logger.info(f"[{error_time}] 来源IP: {client_ip} - 返回错误响应")
-        return jsonify(error_response), 500
-
-@app.route('/monitor')
-def monitor_page():
-    """
-    监控页面路由，返回 web.html 文件
-    """
-    try:
-        # 从与 flask_api_server.py 同级的目录返回 web.html
-        return send_from_directory('.', 'web.html')
-    except FileNotFoundError:
-        logger.error("web.html 文件未找到")
-        return "监控页面未找到", 404
-    except Exception as e:
-        logger.error(f"返回监控页面时出错: {str(e)}")
-        return "内部服务器错误", 500
-
 
 @app.route('/monitor')
 def monitor_page():
