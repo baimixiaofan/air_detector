@@ -29,8 +29,11 @@ try:
     # 测试连接
     redis_client.ping()
     print(f"成功连接到 Redis 服务器: {REDIS_HOST}:{REDIS_PORT}")
-except redis.ConnectionError:
-    print(f"无法连接到 Redis 服务器，请确保 Redis 已在 {REDIS_HOST}:{REDIS_PORT} 上运行")
+except redis.ConnectionError as e:
+    print(f"无法连接到 Redis 服务器，请确保 Redis 已在 {REDIS_HOST}:{REDIS_PORT} 上运行: {str(e)}")
+    redis_client = None
+except Exception as e:
+    print(f"连接 Redis 时发生未知错误: {str(e)}")
     redis_client = None
 
 app = Flask(__name__)
@@ -354,15 +357,57 @@ def start_simulator():
         
         script_path = os.path.join(server_scripts_dir, script_name)
         
+        # 检查脚本文件是否存在
+        if not os.path.exists(script_path):
+            error_msg = f"启动脚本不存在: {script_path}"
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+            return jsonify({
+                "status": "error",
+                "message": error_msg
+            }), 500
+        
+        # 检查脚本文件是否有执行权限
+        if not os.access(script_path, os.X_OK):
+            logger.warning(f"[{request_time}] 来源IP: {client_ip} - 脚本文件没有执行权限，尝试添加执行权限")
+            try:
+                os.chmod(script_path, 0o755)
+                logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功添加执行权限")
+            except Exception as e:
+                error_msg = f"无法添加执行权限: {str(e)}"
+                logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+                return jsonify({
+                    "status": "error",
+                    "message": error_msg
+                }), 500
+        
         logger.info(f"找到启动脚本: {script_path}")
         
+        # 检查Docker是否可用
+        docker_check = subprocess.run(
+            ['docker', '--version'],
+            capture_output=True,
+            text=True
+        )
+        if docker_check.returncode != 0:
+            error_msg = f"Docker不可用: {docker_check.stderr}"
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+            return jsonify({
+                "status": "error",
+                "message": error_msg
+            }), 500
+        
         # 执行 .sh 脚本
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 开始执行启动脚本: {script_name}")
         result = subprocess.run(
             ['bash', script_path],
             capture_output=True,
             text=True,
             cwd=server_scripts_dir  # 设置工作目录为脚本目录
         )
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 脚本执行返回码: {result.returncode}")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 脚本标准输出: {result.stdout}")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 脚本标准错误: {result.stderr}")
         
         if result.returncode == 0:
             logger.info(f"[{request_time}] 来源IP: {client_ip} - 模拟器启动脚本执行成功")
@@ -477,5 +522,9 @@ def monitor_page():
 
 
 if __name__ == '__main__':
+    print("正在启动空气质量数据API服务器...")
+    print(f"Redis连接状态: {'已连接' if redis_client else '未连接'}")
     logger.info("空气质量数据API服务器启动")
-    app.run(host='0.0.0.0', port=5000, debug=(os.getenv('FLASK_DEBUG', 'False').lower() == 'true'))
+    # 即使Redis连接失败，也继续启动服务器
+    print("启动服务器在 http://127.0.0.1:5000")
+    app.run(host='127.0.0.1', port=5000, debug=True)
