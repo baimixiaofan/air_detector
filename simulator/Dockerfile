@@ -12,7 +12,7 @@ RUN pip install --timeout 120 -i https://mirrors.aliyun.com/pypi/simple/ --no-ca
 COPY . .
 
 # 创建输出目录（容器内）
-RUN mkdir /app/out
+RUN mkdir /app/output
 
 # 容器启动命令（默认不带API参数，可通过docker run命令行覆盖）
-CMD ["python", "air_detector.py", "--output", "/app/output/simulated_air_data.json"
+CMD "python", "air_detector.py", "--output", "/app/output/simulated_air_data.json"
