@@ -2,6 +2,8 @@
 import json
 import logging
 import os
+import time
+import subprocess
 from datetime import datetime
 import redis
 from flask import Flask, request, jsonify
@@ -212,6 +214,320 @@ def health_check():
         "status": status,
         "timestamp": datetime.now().isoformat()
     })
+
+@app.route('/api/status', methods=['GET'])
+def get_simulator_status():
+    """
+    获取所有模拟器的运行状态
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到状态查询请求 - 来源IP: {client_ip}")
+    
+    try:
+        if not redis_client:
+            error_response = {
+                "status": "error",
+                "message": "无法连接到 Redis 服务器"
+            }
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - Redis 连接失败")
+            return jsonify(error_response), 500
+        
+        # 从 Redis 读取所有模拟器统计数据
+        simulator_data = redis_client.hgetall('simulator_stats')
+        
+        current_time = time.time()
+        timeout_threshold = 15  # 15秒超时
+        
+        total_count = 0
+        online_count = 0
+        simulators_info = {}
+        
+        for sim_id, json_data in simulator_data.items():
+            try:
+                # 解析JSON数据
+                stats = json.loads(json_data)
+                
+                last_update = float(stats.get('last_update', 0))
+                data_sent = int(stats.get('data_sent', 0))
+                status = stats.get('status', 'unknown')
+                
+                # 检查是否超时
+                time_diff = current_time - last_update
+                if time_diff > timeout_threshold:
+                    effective_status = 'offline'
+                else:
+                    effective_status = status
+                    if status == 'running':
+                        online_count += 1
+                
+                # 转换时间戳为可读格式
+                readable_time = datetime.fromtimestamp(last_update).strftime('%Y-%m-%d %H:%M:%S')
+                
+                simulators_info[sim_id] = {
+                    'status': effective_status,
+                    'data_sent': data_sent,
+                    'last_update': readable_time,
+                    'time_since_update': round(time_diff, 2)
+                }
+                
+                total_count += 1
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"解析模拟器 {sim_id} 的统计数据时出错: {str(e)}, 原始数据: {json_data}")
+                continue
+            except (ValueError, TypeError) as e:
+                logger.error(f"处理模拟器 {sim_id} 的统计数据时出错: {str(e)}, 数据: {json_data}")
+                continue
+        
+        response_data = {
+            "total": total_count,
+            "online": online_count,
+            "offline": total_count - online_count,
+            "simulators": simulators_info,
+            "queried_at": datetime.now().isoformat()
+        }
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 状态查询成功，共 {total_count} 个模拟器，{online_count} 个在线")
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - 查询状态时出错: {str(e)}")
+        
+        error_response = {
+            "status": "error",
+            "message": f"查询状态时出错: {str(e)}"
+        }
+        
+        logger.info(f"[{error_time}] 来源IP: {client_ip} - 返回错误响应")
+        return jsonify(error_response), 500
+
+@app.route('/api/start_simulator', methods=['POST'])
+def start_simulator():
+    """
+    启动一个新的模拟器容器
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到启动模拟器请求 - 来源IP: {client_ip}")
+    
+    try:
+        # 获取当前所有以 sim 开头的容器
+        result = subprocess.run(
+            ['docker', 'ps', '--format', '{{.Names}}'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # 解析容器名列表
+        container_names = result.stdout.strip().split('\n') if result.stdout.strip() else []
+        
+        # 过滤出以 sim 开头的容器
+        sim_containers = [name for name in container_names if name.startswith('sim')]
+        
+        # 找到下一个可用的编号
+        next_num = 1
+        while f"sim{next_num}" in sim_containers:
+            next_num += 1
+        
+        container_name = f"sim{next_num}"
+        
+        # 构建启动命令
+        cmd = f"docker run -d --name {container_name} -e SIMULATOR_ID={container_name} --network host simulator-image"
+        
+        # 执行启动命令
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        container_id = result.stdout.strip()
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 模拟器容器 {container_name} ({container_id[:12]}) 启动成功")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"模拟器容器 {container_name} 启动成功",
+            "container_name": container_name,
+            "container_id": container_id
+        }), 200
+        
+    except subprocess.CalledProcessError as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"启动模拟器容器失败: {e.stderr if e.stderr else str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+    
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"启动模拟器时发生未知错误: {str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+
+@app.route('/api/stop_all', methods=['POST'])
+def stop_all_simulators():
+    """
+    停止并删除所有以 "sim" 开头的容器
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到停止所有模拟器请求 - 来源IP: {client_ip}")
+    
+    try:
+        # 停止所有以 sim 开头的容器
+        stop_cmd = "docker stop $(docker ps -q --filter name=sim)"
+        stop_result = subprocess.run(
+            stop_cmd,
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # 删除所有以 sim 开头的容器（包括已停止的）
+        remove_cmd = "docker rm $(docker ps -aq --filter name=sim)"
+        remove_result = subprocess.run(
+            remove_cmd,
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # 记录操作结果
+        stop_output = stop_result.stdout.strip() if stop_result.stdout.strip() else "无容器需要停止"
+        remove_output = remove_result.stdout.strip() if remove_result.stdout.strip() else "无容器需要删除"
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 停止容器结果: {stop_output}")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 删除容器结果: {remove_output}")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"已停止并删除所有以 'sim' 开头的容器\n停止结果: {stop_output}\n删除结果: {remove_output}"
+        }), 200
+        
+    except subprocess.CalledProcessError as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"停止或删除模拟器容器失败: {e.stderr if e.stderr else str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+    
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"停止模拟器时发生未知错误: {str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+
+@app.route('/api/status', methods=['GET'])
+def get_simulator_status():
+    """
+    获取所有模拟器的运行状态
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到状态查询请求 - 来源IP: {client_ip}")
+    
+    try:
+        if not redis_client:
+            error_response = {
+                "status": "error",
+                "message": "无法连接到 Redis 服务器"
+            }
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - Redis 连接失败")
+            return jsonify(error_response), 500
+        
+        # 从 Redis 读取所有模拟器统计数据
+        simulator_data = redis_client.hgetall('simulator_stats')
+        
+        current_time = time.time()
+        timeout_threshold = 15  # 15秒超时
+        
+        total_count = 0
+        online_count = 0
+        simulators_info = {}
+        
+        for sim_id, json_data in simulator_data.items():
+            try:
+                # 解析JSON数据
+                stats = json.loads(json_data)
+                
+                last_update = float(stats.get('last_update', 0))
+                data_sent = int(stats.get('data_sent', 0))
+                status = stats.get('status', 'unknown')
+                
+                # 检查是否超时
+                time_diff = current_time - last_update
+                if time_diff > timeout_threshold:
+                    effective_status = 'offline'
+                else:
+                    effective_status = status
+                    if status == 'running':
+                        online_count += 1
+                
+                # 转换时间戳为可读格式
+                readable_time = datetime.fromtimestamp(last_update).strftime('%Y-%m-%d %H:%M:%S')
+                
+                simulators_info[sim_id] = {
+                    'status': effective_status,
+                    'data_sent': data_sent,
+                    'last_update': readable_time,
+                    'time_since_update': round(time_diff, 2)
+                }
+                
+                total_count += 1
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"解析模拟器 {sim_id} 的统计数据时出错: {str(e)}, 原始数据: {json_data}")
+                continue
+            except (ValueError, TypeError) as e:
+                logger.error(f"处理模拟器 {sim_id} 的统计数据时出错: {str(e)}, 数据: {json_data}")
+                continue
+        
+        response_data = {
+            "total": total_count,
+            "online": online_count,
+            "offline": total_count - online_count,
+            "simulators": simulators_info,
+            "queried_at": datetime.now().isoformat()
+        }
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 状态查询成功，共 {total_count} 个模拟器，{online_count} 个在线")
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - 查询状态时出错: {str(e)}")
+        
+        error_response = {
+            "status": "error",
+            "message": f"查询状态时出错: {str(e)}"
+        }
+        
+        logger.info(f"[{error_time}] 来源IP: {client_ip} - 返回错误响应")
+        return jsonify(error_response), 500
 
 if __name__ == '__main__':
     logger.info("空气质量数据API服务器启动")
