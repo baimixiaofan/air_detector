@@ -525,6 +525,4 @@ if __name__ == '__main__':
     print("正在启动空气质量数据API服务器...")
     print(f"Redis连接状态: {'已连接' if redis_client else '未连接'}")
     logger.info("空气质量数据API服务器启动")
-    # 即使Redis连接失败，也继续启动服务器
-    print("启动服务器在 http://127.0.0.1:5000")
-    app.run(host='127.0.0.1', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=(os.getenv('FLASK_DEBUG', 'False').lower() == 'true'))
