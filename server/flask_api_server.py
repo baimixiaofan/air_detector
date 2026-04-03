@@ -310,7 +310,7 @@ def get_simulator_status():
 @app.route('/api/start_simulator', methods=['POST'])
 def start_simulator():
     """
-    启动一个新的模拟器容器（通过调用服务器上 /root/air_detector/ 目录下的.sh脚本）
+    启动一个新的模拟器容器（通过调用服务器上 /home/air_detector/ 目录下的.sh脚本）
     """
     request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     client_ip = request.remote_addr
