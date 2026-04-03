@@ -6,7 +6,7 @@ import time
 import subprocess
 from datetime import datetime
 import redis
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 import tenacity
 from functools import wraps
 
@@ -528,6 +528,38 @@ def get_simulator_status():
         
         logger.info(f"[{error_time}] 来源IP: {client_ip} - 返回错误响应")
         return jsonify(error_response), 500
+
+@app.route('/monitor')
+def monitor_page():
+    """
+    监控页面路由，返回 web.html 文件
+    """
+    try:
+        # 从与 flask_api_server.py 同级的目录返回 web.html
+        return send_from_directory('.', 'web.html')
+    except FileNotFoundError:
+        logger.error("web.html 文件未找到")
+        return "监控页面未找到", 404
+    except Exception as e:
+        logger.error(f"返回监控页面时出错: {str(e)}")
+        return "内部服务器错误", 500
+
+
+@app.route('/monitor')
+def monitor_page():
+    """
+    监控页面路由，返回 web.html 文件
+    """
+    try:
+        # 从与 flask_api_server.py 同级的目录返回 web.html
+        return send_from_directory('.', 'web.html')
+    except FileNotFoundError:
+        logger.error("web.html 文件未找到")
+        return "监控页面未找到", 404
+    except Exception as e:
+        logger.error(f"返回监控页面时出错: {str(e)}")
+        return "内部服务器错误", 500
+
 
 if __name__ == '__main__':
     logger.info("空气质量数据API服务器启动")
