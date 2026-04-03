@@ -8,3 +8,4 @@
 2026-04-03 16:10:19,064 INFO:  * Debugger PIN: 914-473-379
 2026-04-03 16:10:28,194 INFO:  * Detected change in 'D:\\软件设计\\server\\flask_api_server.py', reloading
 2026-04-03 16:10:28,335 INFO:  * Restarting with stat
+2026-04-03 16:10:53,796 INFO: 空气质量数据API服务器启动

@@ -319,7 +319,7 @@ def start_simulator():
     
     try:
         # 指定服务器上 .sh 文件的路径
-        server_scripts_dir = '/root/air_detector/'
+        server_scripts_dir = '/home/air_detector/'
         
         # 检查目录是否存在
         if not os.path.exists(server_scripts_dir):
