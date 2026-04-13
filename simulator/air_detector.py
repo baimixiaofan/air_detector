@@ -7,6 +7,14 @@ import argparse
 import threading
 import queue
 import requests
+import socket
+
+# 尝试导入 Redis 模块
+try:
+    import redis
+except ImportError:
+    print("警告: 未安装 redis 模块，心跳上报功能将不可用")
+    redis = None
 
 # 时间间隔变量（毫秒）
 # 可以直接修改这个值来调整默认的生成数据时间间隔
@@ -54,10 +62,22 @@ class AirQualitySimulator:
         # 控制变量
         self.running = False
         self.save_running = False
+        self.heartbeat_running = False
         
         # 线程
         self.generate_thread = None
         self.save_thread = None
+        self.heartbeat_thread = None
+        
+        # 数据发送计数器
+        self.data_sent = 0
+        self.data_sent_lock = threading.Lock()
+        
+        # 心跳相关
+        self.simulator_id = os.getenv('SIMULATOR_ID', socket.gethostname() or 'unknown')
+        self.redis_client = None
+        self.redis_host = os.getenv('REDIS_HOST', 'localhost')
+        self.redis_port = int(os.getenv('REDIS_PORT', '6379'))
     
     def start(self):
         """开始生成数据"""
@@ -74,8 +94,15 @@ class AirQualitySimulator:
         self.save_thread.daemon = True
         self.save_thread.start()
         
+        # 创建并启动心跳线程
+        self.heartbeat_running = True
+        self.heartbeat_thread = threading.Thread(target=self.heartbeat_report)
+        self.heartbeat_thread.daemon = True
+        self.heartbeat_thread.start()
+        
         print(f"开始生成空气质量数据，频率：{self.frequency}ms")
         print(f"输出文件：{self.output_file}")
+        print(f"模拟器ID：{self.simulator_id}")
         print("按 Ctrl+C 停止生成")
         
         try:
@@ -152,12 +179,18 @@ class AirQualitySimulator:
         """停止生成数据"""
         self.running = False
         self.save_running = False
+        self.heartbeat_running = False
         
         # 等待线程结束
         if self.generate_thread:
             self.generate_thread.join(timeout=2)
         if self.save_thread:
             self.save_thread.join(timeout=2)
+        if self.heartbeat_thread:
+            self.heartbeat_thread.join(timeout=2)
+        
+        # 退出时更新状态
+        self.update_heartbeat_status("stopped")
         
         print("所有线程已停止")
     
@@ -195,6 +228,9 @@ class AirQualitySimulator:
             # 检查响应状态
             if response.status_code in [200, 201, 202]:
                 print(f"HTTP请求发送成功，状态码：{response.status_code}")
+                # 增加数据发送计数器
+                with self.data_sent_lock:
+                    self.data_sent += 1
             else:
                 print(f"HTTP请求发送失败，状态码：{response.status_code}，响应：{response.text}")
         
@@ -228,6 +264,63 @@ class AirQualitySimulator:
                 json.dump(json_data, f)
         except Exception as e:
             print(f"保存JSON文件时出错：{e}")
+    
+    def init_redis(self):
+        """初始化Redis连接"""
+        if not redis:
+            print("Redis模块未安装，跳过Redis初始化")
+            return False
+        
+        try:
+            if not self.redis_client:
+                self.redis_client = redis.Redis(
+                    host=self.redis_host,
+                    port=self.redis_port,
+                    decode_responses=True
+                )
+                # 测试连接
+                self.redis_client.ping()
+                print(f"成功连接到Redis: {self.redis_host}:{self.redis_port}")
+                return True
+            return True
+        except Exception as e:
+            print(f"连接Redis失败: {e}")
+            self.redis_client = None
+            return False
+    
+    def update_heartbeat_status(self, status):
+        """更新心跳状态"""
+        if not self.init_redis():
+            return
+        
+        try:
+            with self.data_sent_lock:
+                data_sent = self.data_sent
+            
+            heartbeat_data = {
+                "last_update": time.time(),
+                "data_sent": data_sent,
+                "status": status
+            }
+            
+            # 将数据保存到Redis的Hash键中
+            self.redis_client.hset("simulator_stats", self.simulator_id, json.dumps(heartbeat_data))
+            if status == "stopped":
+                print(f"更新模拟器状态为：{status}")
+        except Exception as e:
+            print(f"更新心跳状态失败: {e}")
+    
+    def heartbeat_report(self):
+        """心跳上报线程"""
+        while self.heartbeat_running:
+            try:
+                self.update_heartbeat_status("running")
+                # 每5秒上报一次
+                time.sleep(5)
+            except Exception as e:
+                print(f"心跳上报出错: {e}")
+                # 出错后等待1秒再重试
+                time.sleep(1)
 
 if __name__ == "__main__":
     # 解析命令行参数
