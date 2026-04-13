@@ -76,7 +76,8 @@ class AirQualitySimulator:
         # 心跳相关
         self.simulator_id = os.getenv('SIMULATOR_ID', socket.gethostname() or 'unknown')
         self.redis_client = None
-        self.redis_host = os.getenv('REDIS_HOST', 'localhost')
+        # 使用 172.17.0.1 作为默认值，这是 Docker 默认网桥 IP，可以连接到宿主机
+        self.redis_host = os.getenv('REDIS_HOST', '172.17.0.1')
         self.redis_port = int(os.getenv('REDIS_PORT', '6379'))
     
     def start(self):
