@@ -11,9 +11,11 @@ for i in $(seq 1 $NUM); do
     OUTPUT_DIR="${OUTPUT_BASE}/${CONTAINER_NAME}"
     mkdir -p $OUTPUT_DIR
     echo "Starting $CONTAINER_NAME ..."
-    # 修改点：将 docker 替换为 /usr/bin/docker
-    /usr/bin/docker run -d \
+    docker run -d \
         --name $CONTAINER_NAME \
+        --network host \
+        -e SIMULATOR_ID=$CONTAINER_NAME \
+        -e REDIS_HOST=127.0.0.1 \
         -v $OUTPUT_DIR:/app/output \
         $IMAGE \
         python air_detector.py --output /app/output/simulated_air_data.json
