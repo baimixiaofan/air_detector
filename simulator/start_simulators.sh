@@ -3,6 +3,8 @@ NUM=5
 IMAGE="simulator-image"
 BASE_NAME="sim"
 OUTPUT_BASE="$HOME/simulator_output"
+# Flask API 端点地址（使用 host 网络模式，所以可以用 127.0.0.1）
+API_ENDPOINT="http://127.0.0.1:5000/api/air-quality"
 
 mkdir -p $OUTPUT_BASE
 
@@ -18,7 +20,7 @@ for i in $(seq 1 $NUM); do
         -e REDIS_HOST=127.0.0.1 \
         -v $OUTPUT_DIR:/app/output \
         $IMAGE \
-        python air_detector.py --output /app/output/simulated_air_data.json
+        python air_detector.py --output /app/output/simulated_air_data.json --api-endpoint $API_ENDPOINT
 done
 
 echo "All containers started."
