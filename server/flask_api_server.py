@@ -395,13 +395,21 @@ def start_simulator():
         logger.info(f"找到启动脚本: {script_path}")
         
         # 检查Docker是否可用
-        docker_check = subprocess.run(
-            ['docker', '--version'],
-            capture_output=True,
-            text=True
-        )
-        if docker_check.returncode != 0:
-            error_msg = f"Docker不可用: {docker_check.stderr}"
+        try:
+            docker_check = subprocess.run(
+                ['docker', '--version'],
+                capture_output=True,
+                text=True
+            )
+            if docker_check.returncode != 0:
+                error_msg = f"Docker不可用: {docker_check.stderr}"
+                logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+                return jsonify({
+                    "status": "error",
+                    "message": error_msg
+                }), 500
+        except FileNotFoundError:
+            error_msg = "未找到 docker 命令，请确保 Docker 已安装并添加到 PATH"
             logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
             return jsonify({
                 "status": "error",
