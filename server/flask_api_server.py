@@ -321,11 +321,9 @@ def start_simulator():
     data = request.json or {}
     num_simulators = data.get('count', 5)
     
-    # 限制数量范围
+    # 确保数量是正整数
     if not isinstance(num_simulators, int) or num_simulators < 1:
         num_simulators = 5
-    elif num_simulators > 20:
-        num_simulators = 20
     
     logger.info(f"[{request_time}] 来源IP: {client_ip} - 请求启动 {num_simulators} 个模拟器")
     
