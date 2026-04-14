@@ -317,6 +317,18 @@ def start_simulator():
     
     logger.info(f"[{request_time}] 收到启动模拟器请求 - 来源IP: {client_ip}")
     
+    # 获取请求中的启动数量，默认为5
+    data = request.json or {}
+    num_simulators = data.get('count', 5)
+    
+    # 限制数量范围
+    if not isinstance(num_simulators, int) or num_simulators < 1:
+        num_simulators = 5
+    elif num_simulators > 20:
+        num_simulators = 20
+    
+    logger.info(f"[{request_time}] 来源IP: {client_ip} - 请求启动 {num_simulators} 个模拟器")
+    
     try:
         # 指定服务器上 .sh 文件的路径
         server_scripts_dir = '/home/air_detector/'
@@ -396,10 +408,10 @@ def start_simulator():
                 "message": error_msg
             }), 500
         
-        # 执行 .sh 脚本
-        logger.info(f"[{request_time}] 来源IP: {client_ip} - 开始执行启动脚本: {script_name}")
+        # 执行 .sh 脚本，传递数量参数
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 开始执行启动脚本: {script_name}，数量: {num_simulators}")
         result = subprocess.run(
-            ['bash', script_path],
+            ['bash', script_path, str(num_simulators)],
             capture_output=True,
             text=True,
             cwd=server_scripts_dir  # 设置工作目录为脚本目录

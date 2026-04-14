@@ -1,10 +1,13 @@
 #!/bin/bash
-NUM=5
+# 获取传入的数量参数，默认为5
+NUM=${1:-5}
 IMAGE="simulator-image"
 BASE_NAME="sim"
 OUTPUT_BASE="$HOME/simulator_output"
 # Flask API 端点地址（使用 host 网络模式，所以可以用 127.0.0.1）
 API_ENDPOINT="http://127.0.0.1:5000/api/air-quality"
+
+echo "将启动 $NUM 个模拟器容器"
 
 mkdir -p $OUTPUT_BASE
 

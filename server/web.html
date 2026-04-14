@@ -57,6 +57,36 @@
             gap: 20px;
             margin-bottom: 30px;
             flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background-color: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .input-group label {
+            font-weight: bold;
+            color: #555;
+        }
+
+        .input-group input {
+            width: 60px;
+            padding: 8px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #3498db;
         }
 
         button {
@@ -182,7 +212,11 @@
     </div>
 
     <div class="controls">
-        <button class="start-btn" onclick="startSimulator()">启动新模拟器</button>
+        <div class="input-group">
+            <label for="simulator-count">启动数量:</label>
+            <input type="number" id="simulator-count" min="1" max="20" value="5">
+        </div>
+        <button class="start-btn" onclick="startSimulator()">启动模拟器</button>
         <button class="stop-btn" onclick="stopAllSimulators()">停止所有模拟器</button>
     </div>
 
@@ -260,7 +294,10 @@
 
         // 启动新模拟器
         async function startSimulator() {
-            if (!confirm('确定要启动新的模拟器吗？')) {
+            // 获取用户输入的启动数量
+            const count = parseInt(document.getElementById('simulator-count').value) || 5;
+            
+            if (!confirm(`确定要启动 ${count} 个模拟器吗？`)) {
                 return;
             }
 
@@ -269,7 +306,8 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
-                    }
+                    },
+                    body: JSON.stringify({ count: count })
                 });
 
                 const data = await response.json();
