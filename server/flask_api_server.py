@@ -307,6 +307,60 @@ def get_simulator_status():
         logger.info(f"[{error_time}] 来源IP: {client_ip} - 返回错误响应")
         return jsonify(error_response), 500
 
+@app.route('/api/queue_data', methods=['GET'])
+def get_queue_data():
+    """
+    获取消息队列数据和最近的消息
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    try:
+        messages = []
+        queue_length = 0
+        total_received = 0
+        
+        if redis_client:
+            try:
+                queue_length = redis_client.xlen(REDIS_STREAM)
+                
+                recent_messages = redis_client.xrevrange(REDIS_STREAM, count=20)
+                
+                for msg_id, msg_data in recent_messages:
+                    try:
+                        message = {
+                            'id': msg_id.decode() if isinstance(msg_id, bytes) else msg_id,
+                            'timestamp': msg_data.get(b'timestamp', msg_data.get('timestamp', b'')).decode() if isinstance(msg_data.get(b'timestamp', msg_data.get('timestamp')), bytes) else msg_data.get('timestamp', ''),
+                            'simulator_id': msg_data.get(b'client_ip', msg_data.get('client_ip', b'')).decode() if isinstance(msg_data.get(b'client_ip', msg_data.get('client_ip')), bytes) else msg_data.get('client_ip', ''),
+                            'data': json.loads(msg_data.get(b'data', msg_data.get('data', b'{}')).decode() if isinstance(msg_data.get(b'data', msg_data.get('data')), bytes) else msg_data.get('data', '{}'))
+                        }
+                        messages.append(message)
+                    except Exception as e:
+                        continue
+                
+                total_received = queue_length
+                
+            except Exception as e:
+                logger.error(f"[{request_time}] 来源IP: {client_ip} - 获取队列数据失败: {str(e)}")
+        
+        response_data = {
+            'queue_length': queue_length,
+            'total_received': total_received,
+            'messages': messages
+        }
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - 获取队列数据时出错: {str(e)}")
+        return jsonify({
+            'queue_length': 0,
+            'total_received': 0,
+            'messages': [],
+            'error': str(e)
+        }), 500
+
 @app.route('/api/start_simulator', methods=['POST'])
 def start_simulator():
     """

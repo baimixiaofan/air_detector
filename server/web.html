@@ -4,58 +4,129 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>模拟器监控面板</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
+            padding: 15px;
+            background-color: #f0f2f5;
             color: #333;
+            height: 100vh;
+            overflow: hidden;
         }
 
         .header {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 15px;
         }
 
         h1 {
             color: #2c3e50;
+            margin: 0 0 5px 0;
+            font-size: 1.5em;
+        }
+
+        .header p {
+            margin: 0;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+
+        .main-container {
+            display: flex;
+            gap: 15px;
+            height: calc(100vh - 100px);
+        }
+
+        .left-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .right-panel {
+            width: 280px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .panel {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background-color: #3498db;
+            color: white;
+            padding: 10px 15px;
+            font-weight: bold;
+            font-size: 0.95em;
+        }
+
+        .panel-content {
+            padding: 15px;
+        }
+
+        .chart-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-panel .panel-content {
+            flex: 1;
+            position: relative;
+            min-height: 0;
+        }
+
+        .queue-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .queue-panel .panel-content {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 10px;
             margin-bottom: 10px;
         }
 
-        .stats-container {
-            display: flex;
-            justify-content: center;
-            gap: 30px;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
-        }
-
-        .stat-card {
-            background-color: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            min-width: 150px;
+        .stat-mini {
+            flex: 1;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            padding: 8px;
             text-align: center;
         }
 
-        .stat-value {
-            font-size: 2em;
+        .stat-mini .value {
+            font-size: 1.3em;
             font-weight: bold;
             color: #3498db;
         }
 
-        .stat-label {
-            margin-top: 5px;
+        .stat-mini .label {
+            font-size: 0.75em;
             color: #7f8c8d;
         }
 
         .controls {
             display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin-bottom: 30px;
+            gap: 8px;
             flex-wrap: wrap;
             align-items: center;
         }
@@ -63,37 +134,27 @@
         .input-group {
             display: flex;
             align-items: center;
-            gap: 10px;
-            background-color: white;
-            padding: 10px 15px;
-            border-radius: 6px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-
-        .input-group label {
-            font-weight: bold;
-            color: #555;
+            gap: 5px;
+            background-color: #f8f9fa;
+            padding: 6px 10px;
+            border-radius: 5px;
+            font-size: 0.85em;
         }
 
         .input-group input {
-            width: 60px;
-            padding: 8px;
-            font-size: 16px;
-            border: 2px solid #ddd;
-            border-radius: 4px;
+            width: 50px;
+            padding: 4px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
             text-align: center;
         }
 
-        .input-group input:focus {
-            outline: none;
-            border-color: #3498db;
-        }
-
         button {
-            padding: 12px 24px;
-            font-size: 16px;
+            padding: 6px 12px;
+            font-size: 0.85em;
             border: none;
-            border-radius: 6px;
+            border-radius: 5px;
             cursor: pointer;
             transition: background-color 0.3s;
         }
@@ -116,57 +177,117 @@
             background-color: #c0392b;
         }
 
-        .simulators-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            max-width: 1200px;
-            margin: 0 auto;
+        .simulator-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: calc(100vh - 350px);
+            overflow-y: auto;
         }
 
-        .simulator-card {
-            background-color: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        .simulator-mini {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 0.85em;
             transition: transform 0.2s;
         }
 
-        .simulator-card:hover {
-            transform: translateY(-2px);
+        .simulator-mini:hover {
+            transform: translateX(3px);
         }
 
-        .simulator-card.online {
+        .simulator-mini.online {
             background-color: #d4edda;
-            border-left: 4px solid #28a745;
+            border-left: 3px solid #28a745;
         }
 
-        .simulator-card.offline {
+        .simulator-mini.offline {
             background-color: #f8d7da;
-            border-left: 4px solid #dc3545;
+            border-left: 3px solid #dc3545;
         }
 
-        .simulator-id {
+        .sim-name {
             font-weight: bold;
-            font-size: 1.2em;
-            margin-bottom: 10px;
+            color: #333;
         }
 
-        .simulator-status {
-            font-weight: bold;
+        .sim-info {
+            display: flex;
+            gap: 10px;
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        .sim-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        .sim-status-dot.online {
+            background-color: #28a745;
+        }
+
+        .sim-status-dot.offline {
+            background-color: #dc3545;
+        }
+
+        .queue-item {
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            padding: 10px;
             margin-bottom: 8px;
+            border-left: 3px solid #3498db;
+            font-size: 0.85em;
         }
 
-        .status-online {
-            color: #28a745;
-        }
-
-        .status-offline {
-            color: #dc3545;
-        }
-
-        .simulator-data-sent, .simulator-last-update {
+        .queue-item-header {
+            display: flex;
+            justify-content: space-between;
             margin-bottom: 5px;
+        }
+
+        .queue-item-time {
+            color: #7f8c8d;
+            font-size: 0.8em;
+        }
+
+        .queue-item-data {
+            color: #555;
+            font-family: monospace;
+            font-size: 0.8em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .queue-stats {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #e8f4fd;
+            border-radius: 6px;
+        }
+
+        .queue-stat {
+            text-align: center;
+        }
+
+        .queue-stat .value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #3498db;
+        }
+
+        .queue-stat .label {
+            font-size: 0.7em;
+            color: #7f8c8d;
         }
 
         .loading {
@@ -176,91 +297,172 @@
             color: #7f8c8d;
         }
 
-        .error {
+        .no-data {
             text-align: center;
             padding: 20px;
-            color: #e74c3c;
+            color: #7f8c8d;
+            font-style: italic;
         }
 
         .footer {
             text-align: center;
-            margin-top: 30px;
             color: #7f8c8d;
-            font-size: 0.9em;
+            font-size: 0.75em;
+            padding: 5px;
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>模拟器监控面板</h1>
-        <p>实时监控模拟器运行状态</p>
+        <p>实时监控模拟器运行状态与数据流</p>
     </div>
 
-    <div class="stats-container">
-        <div class="stat-card">
-            <div class="stat-value" id="total-count">-</div>
-            <div class="stat-label">总数量</div>
+    <div class="main-container">
+        <div class="left-panel">
+            <div class="panel chart-panel">
+                <div class="panel-header">数据可视化</div>
+                <div class="panel-content">
+                    <canvas id="dataChart"></canvas>
+                </div>
+            </div>
+            <div class="panel queue-panel">
+                <div class="panel-header">消息队列</div>
+                <div class="panel-content">
+                    <div class="queue-stats">
+                        <div class="queue-stat">
+                            <div class="value" id="queue-length">-</div>
+                            <div class="label">队列长度</div>
+                        </div>
+                        <div class="queue-stat">
+                            <div class="value" id="queue-rate">-</div>
+                            <div class="label">接收速率/秒</div>
+                        </div>
+                        <div class="queue-stat">
+                            <div class="value" id="queue-total">-</div>
+                            <div class="label">总接收数</div>
+                        </div>
+                    </div>
+                    <div id="queue-list">
+                        <div class="no-data">暂无消息</div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="stat-card">
-            <div class="stat-value" id="online-count">-</div>
-            <div class="stat-label">在线数量</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" id="offline-count">-</div>
-            <div class="stat-label">离线数量</div>
-        </div>
-    </div>
 
-    <div class="controls">
-        <div class="input-group">
-            <label for="simulator-count">启动数量:</label>
-            <input type="number" id="simulator-count" min="1" value="5">
+        <div class="right-panel">
+            <div class="panel">
+                <div class="panel-header">模拟器状态</div>
+                <div class="panel-content">
+                    <div class="stats-row">
+                        <div class="stat-mini">
+                            <div class="value" id="total-count">-</div>
+                            <div class="label">总数</div>
+                        </div>
+                        <div class="stat-mini">
+                            <div class="value" id="online-count" style="color: #28a745;">-</div>
+                            <div class="label">在线</div>
+                        </div>
+                        <div class="stat-mini">
+                            <div class="value" id="offline-count" style="color: #dc3545;">-</div>
+                            <div class="label">离线</div>
+                        </div>
+                    </div>
+                    <div class="controls">
+                        <div class="input-group">
+                            <label>数量:</label>
+                            <input type="number" id="simulator-count" min="1" value="5">
+                        </div>
+                        <button class="start-btn" onclick="startSimulator()">启动</button>
+                        <button class="stop-btn" onclick="stopAllSimulators()">停止</button>
+                    </div>
+                </div>
+            </div>
+            <div class="panel" style="flex: 1; overflow: hidden;">
+                <div class="panel-content" style="height: 100%; overflow-y: auto;">
+                    <div id="simulators-list" class="simulator-list">
+                        <div class="loading">加载中...</div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <button class="start-btn" onclick="startSimulator()">启动模拟器</button>
-        <button class="stop-btn" onclick="stopAllSimulators()">停止所有模拟器</button>
-    </div>
-
-    <div id="simulators-list">
-        <div class="loading">加载中...</div>
     </div>
 
     <div class="footer">
-        <p>页面每3秒自动刷新</p>
+        页面每3秒自动刷新
     </div>
 
     <script>
-        // API 基础 URL
         const API_BASE_URL = window.location.origin;
+        
+        let dataChart = null;
+        let chartData = {
+            labels: [],
+            datasets: [
+                { label: 'AQI', data: [], borderColor: '#e74c3c', tension: 0.3, fill: false },
+                { label: 'PM2.5', data: [], borderColor: '#f39c12', tension: 0.3, fill: false },
+                { label: 'NO2', data: [], borderColor: '#3498db', tension: 0.3, fill: false },
+                { label: 'SO2', data: [], borderColor: '#9b59b6', tension: 0.3, fill: false },
+                { label: 'O3', data: [], borderColor: '#2ecc71', tension: 0.3, fill: false }
+            ]
+        };
+        
+        let queueMessages = [];
+        let totalReceived = 0;
+        let lastTotalReceived = 0;
+        let receiveRate = 0;
 
-        // 获取模拟器状态
+        function initChart() {
+            const ctx = document.getElementById('dataChart').getContext('2d');
+            dataChart = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 300 },
+                    scales: {
+                        x: {
+                            display: true,
+                            maxTicksLimit: 10
+                        },
+                        y: {
+                            display: true,
+                            beginAtZero: false
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { boxWidth: 12, font: { size: 11 } }
+                        }
+                    },
+                    elements: {
+                        point: { radius: 2 }
+                    }
+                }
+            });
+        }
+
         async function fetchSimulatorStatus() {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/status`);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
-                updateUI(data);
+                updateSimulatorUI(data);
             } catch (error) {
                 console.error('获取状态失败:', error);
-                document.getElementById('simulators-list').innerHTML = 
-                    `<div class="error">获取状态失败: ${error.message}</div>`;
             }
         }
 
-        // 更新 UI
-        function updateUI(statusData) {
-            // 更新统计信息
+        function updateSimulatorUI(statusData) {
             document.getElementById('total-count').textContent = statusData.total || 0;
             document.getElementById('online-count').textContent = statusData.online || 0;
             document.getElementById('offline-count').textContent = statusData.offline || 0;
 
-            // 更新模拟器列表
             const simulatorsList = document.getElementById('simulators-list');
             if (statusData.simulators && Object.keys(statusData.simulators).length > 0) {
-                let html = '<div class="simulators-container">';
-                
-                // 按ID排序模拟器
+                let html = '';
                 const sortedIds = Object.keys(statusData.simulators).sort((a, b) => {
                     const numA = parseInt(a.replace(/\D/g, '')) || 0;
                     const numB = parseInt(b.replace(/\D/g, '')) || 0;
@@ -270,55 +472,114 @@
                 sortedIds.forEach(id => {
                     const sim = statusData.simulators[id];
                     const isOnline = sim.status === 'running' || sim.status === 'online';
-                    const cardClass = isOnline ? 'simulator-card online' : 'simulator-card offline';
-                    const statusText = isOnline ? '在线' : '离线';
-                    const statusClass = isOnline ? 'status-online' : 'status-offline';
+                    const cardClass = isOnline ? 'simulator-mini online' : 'simulator-mini offline';
+                    const dotClass = isOnline ? 'sim-status-dot online' : 'sim-status-dot offline';
                     
                     html += `
                         <div class="${cardClass}">
-                            <div class="simulator-id">${id}</div>
-                            <div class="simulator-status ${statusClass}">${statusText}</div>
-                            <div class="simulator-data-sent">已发送数据: ${sim.data_sent || 0} 条</div>
-                            <div class="simulator-last-update">最后心跳: ${sim.last_update || 'N/A'}</div>
-                            <div class="simulator-time-since">距上次更新: ${sim.time_since_update}s</div>
+                            <div>
+                                <span class="${dotClass}"></span>
+                                <span class="sim-name">${id}</span>
+                            </div>
+                            <div class="sim-info">
+                                <span>${sim.data_sent || 0}条</span>
+                                <span>${sim.time_since_update || '-'}s</span>
+                            </div>
                         </div>
                     `;
                 });
-                
-                html += '</div>';
                 simulatorsList.innerHTML = html;
             } else {
-                simulatorsList.innerHTML = '<div class="loading">暂无模拟器</div>';
+                simulatorsList.innerHTML = '<div class="no-data">暂无模拟器</div>';
             }
         }
 
-        // 启动新模拟器
-        async function startSimulator() {
-            // 获取用户输入的启动数量
-            const count = parseInt(document.getElementById('simulator-count').value) || 5;
-            
-            if (!confirm(`确定要启动 ${count} 个模拟器吗？`)) {
-                return;
+        async function fetchQueueData() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/queue_data`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                updateQueueUI(data);
+                updateChart(data);
+            } catch (error) {
+                console.error('获取队列数据失败:', error);
             }
+        }
+
+        function updateQueueUI(data) {
+            const queueLength = data.queue_length || 0;
+            const messages = data.messages || [];
+            
+            totalReceived = data.total_received || totalReceived;
+            receiveRate = totalReceived - lastTotalReceived;
+            lastTotalReceived = totalReceived;
+            
+            document.getElementById('queue-length').textContent = queueLength;
+            document.getElementById('queue-rate').textContent = receiveRate;
+            document.getElementById('queue-total').textContent = totalReceived;
+            
+            const queueList = document.getElementById('queue-list');
+            if (messages.length > 0) {
+                let html = '';
+                messages.slice(0, 20).forEach(msg => {
+                    const time = new Date(msg.timestamp).toLocaleTimeString();
+                    const dataStr = JSON.stringify(msg.data || {}).substring(0, 50);
+                    html += `
+                        <div class="queue-item">
+                            <div class="queue-item-header">
+                                <span>${msg.simulator_id || 'unknown'}</span>
+                                <span class="queue-item-time">${time}</span>
+                            </div>
+                            <div class="queue-item-data">${dataStr}...</div>
+                        </div>
+                    `;
+                });
+                queueList.innerHTML = html;
+            } else {
+                queueList.innerHTML = '<div class="no-data">暂无消息</div>';
+            }
+        }
+
+        function updateChart(data) {
+            const messages = data.messages || [];
+            if (messages.length > 0) {
+                messages.forEach(msg => {
+                    if (msg.data) {
+                        const time = new Date(msg.timestamp).toLocaleTimeString();
+                        chartData.labels.push(time);
+                        
+                        const cols = ['AQI', 'PM2.5', 'NO2', 'SO2', 'O3'];
+                        cols.forEach((col, i) => {
+                            const val = msg.data[col] || msg.data[col.replace('2.5', '₂.₅')] || 0;
+                            chartData.datasets[i].data.push(parseFloat(val) || 0);
+                        });
+                        
+                        if (chartData.labels.length > 50) {
+                            chartData.labels.shift();
+                            chartData.datasets.forEach(ds => ds.data.shift());
+                        }
+                    }
+                });
+                
+                if (dataChart) {
+                    dataChart.update('none');
+                }
+            }
+        }
+
+        async function startSimulator() {
+            const count = parseInt(document.getElementById('simulator-count').value) || 5;
+            if (!confirm(`确定要启动 ${count} 个模拟器吗？`)) return;
 
             try {
                 const response = await fetch(`${API_BASE_URL}/api/start_simulator`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ count: count })
                 });
-
                 const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.message || `HTTP error! status: ${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
                 alert(data.message);
-                
-                // 刷新状态
                 fetchSimulatorStatus();
             } catch (error) {
                 console.error('启动模拟器失败:', error);
@@ -326,28 +587,17 @@
             }
         }
 
-        // 停止所有模拟器
         async function stopAllSimulators() {
-            if (!confirm('确定要停止所有模拟器吗？这将停止所有以 "sim" 开头的容器。')) {
-                return;
-            }
+            if (!confirm('确定要停止所有模拟器吗？')) return;
 
             try {
                 const response = await fetch(`${API_BASE_URL}/api/stop_all`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
+                    headers: { 'Content-Type': 'application/json' }
                 });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
                 alert(data.message);
-                
-                // 刷新状态
                 fetchSimulatorStatus();
             } catch (error) {
                 console.error('停止模拟器失败:', error);
@@ -355,13 +605,12 @@
             }
         }
 
-        // 页面加载完成后开始定时刷新
         document.addEventListener('DOMContentLoaded', function() {
-            // 立即获取一次数据
+            initChart();
             fetchSimulatorStatus();
-            
-            // 每3秒刷新一次
+            fetchQueueData();
             setInterval(fetchSimulatorStatus, 3000);
+            setInterval(fetchQueueData, 3000);
         });
     </script>
 </body>
