@@ -15,7 +15,7 @@ REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
 REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
 REDIS_DB = int(os.getenv('REDIS_DB', 0))
 REDIS_STREAM = os.getenv('REDIS_STREAM', 'data_stream')
-API_KEY = os.getenv('API_KEY')  # 可选的API密钥
+API_KEY = '111'  # API密钥（写死）
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
 # 建立 Redis 连接
