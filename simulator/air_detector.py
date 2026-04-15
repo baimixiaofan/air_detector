@@ -196,53 +196,136 @@ class AirQualitySimulator:
         print("所有线程已停止")
     
     def send_http_request(self):
-        """发送HTTP请求"""
+        """发送HTTP请求（带重传机制）"""
         if not self.api_endpoint:
-            return  # 如果没有设置API端点，则不发送请求
+            return
         
-        try:
-            # 获取最新数据
-            with threading.Lock():
-                if not self.timestamps or not self.simulated_data:
-                    return
+        with threading.Lock():
+            if not self.timestamps or not self.simulated_data:
+                return
+            latest_timestamp = self.timestamps[-1]
+            latest_data = self.simulated_data[-1]
+        
+        payload = {
+            "timestamp": latest_timestamp,
+            "data": {}
+        }
+        for i, col in enumerate(self.cols):
+            payload["data"][col] = latest_data[i]
+        
+        success = self._send_with_retry(payload)
+        
+        if success:
+            with self.data_sent_lock:
+                self.data_sent += 1
+            self._send_cached_data()
+    
+    def _send_with_retry(self, payload, max_retries=3):
+        """
+        带重传机制的发送方法
+        
+        Args:
+            payload: 要发送的数据
+            max_retries: 最大重试次数
+        
+        Returns:
+            bool: 发送是否成功
+        """
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    self.api_endpoint,
+                    json=payload,
+                    headers=self.api_headers,
+                    timeout=10
+                )
                 
-                # 获取最新的数据点
-                latest_timestamp = self.timestamps[-1]
-                latest_data = self.simulated_data[-1]
+                if response.status_code in [200, 201, 202]:
+                    if attempt > 0:
+                        print(f"重试第{attempt}次成功")
+                    else:
+                        print(f"HTTP请求发送成功，状态码：{response.status_code}")
+                    return True
+                else:
+                    print(f"HTTP请求失败(尝试{attempt + 1}/{max_retries})，状态码：{response.status_code}")
+                    
+            except requests.exceptions.Timeout:
+                print(f"请求超时(尝试{attempt + 1}/{max_retries})，端点：{self.api_endpoint}")
+            except requests.exceptions.ConnectionError:
+                print(f"连接错误(尝试{attempt + 1}/{max_retries})，端点：{self.api_endpoint}")
+            except requests.exceptions.RequestException as e:
+                print(f"请求错误(尝试{attempt + 1}/{max_retries})：{e}")
+            except Exception as e:
+                print(f"未知错误(尝试{attempt + 1}/{max_retries})：{e}")
             
-            # 构建要发送的数据
-            payload = {
-                "timestamp": latest_timestamp,
-                "data": {}
-            }
-            for i, col in enumerate(self.cols):
-                payload["data"][col] = latest_data[i]
-            
-            # 发送POST请求
-            response = requests.post(
-                self.api_endpoint,
-                json=payload,
-                headers=self.api_headers,
-                timeout=10  # 设置超时时间为10秒
-            )
-            
-            # 检查响应状态
-            if response.status_code in [200, 201, 202]:
-                print(f"HTTP请求发送成功，状态码：{response.status_code}")
-                # 增加数据发送计数器
-                with self.data_sent_lock:
-                    self.data_sent += 1
-            else:
-                print(f"HTTP请求发送失败，状态码：{response.status_code}，响应：{response.text}")
+            if attempt < max_retries - 1:
+                retry_delay = 1 + attempt
+                print(f"等待{retry_delay}秒后重试...")
+                time.sleep(retry_delay)
         
-        except requests.exceptions.Timeout:
-            print(f"HTTP请求超时，端点：{self.api_endpoint}")
-        except requests.exceptions.ConnectionError:
-            print(f"连接错误，无法连接到API端点：{self.api_endpoint}")
-        except requests.exceptions.RequestException as e:
-            print(f"发送HTTP请求时发生错误：{e}")
+        print(f"重试{max_retries}次后仍失败，数据已缓存")
+        self._cache_failed_data(payload)
+        return False
+    
+    def _cache_failed_data(self, payload):
+        """缓存发送失败的数据到本地文件"""
+        try:
+            cache_file = os.path.join(os.path.dirname(self.output_file), 'failed_data_cache.json')
+            
+            cached_data = []
+            if os.path.exists(cache_file):
+                with open(cache_file, 'r') as f:
+                    cached_data = json.load(f)
+            
+            cached_data.append({
+                "payload": payload,
+                "failed_at": time.time()
+            })
+            
+            with open(cache_file, 'w') as f:
+                json.dump(cached_data, f)
+            
+            print(f"数据已缓存到本地，当前缓存{len(cached_data)}条")
         except Exception as e:
-            print(f"发送HTTP请求时发生未知错误：{e}")
+            print(f"缓存数据失败：{e}")
+    
+    def _send_cached_data(self):
+        """尝试发送缓存的数据"""
+        try:
+            cache_file = os.path.join(os.path.dirname(self.output_file), 'failed_data_cache.json')
+            
+            if not os.path.exists(cache_file):
+                return
+            
+            with open(cache_file, 'r') as f:
+                cached_data = json.load(f)
+            
+            if not cached_data:
+                return
+            
+            print(f"尝试发送{len(cached_data)}条缓存数据...")
+            
+            success_list = []
+            for i, item in enumerate(cached_data):
+                payload = item.get('payload')
+                if payload and self._send_with_retry(payload, max_retries=1):
+                    success_list.append(i)
+                    print(f"缓存数据发送成功 [{i + 1}/{len(cached_data)}]")
+            
+            if success_list:
+                for i in reversed(success_list):
+                    cached_data.pop(i)
+                
+                if cached_data:
+                    with open(cache_file, 'w') as f:
+                        json.dump(cached_data, f)
+                    print(f"还有{len(cached_data)}条缓存数据待发送")
+                else:
+                    os.remove(cache_file)
+                    print("所有缓存数据已发送完毕")
+                    
+        except Exception as e:
+            print(f"处理缓存数据时出错：{e}")
     
     def save_to_json(self):
         """保存数据到JSON文件"""
