@@ -108,16 +108,6 @@ def push_to_redis_stream(record):
     
     redis_client.xadd(REDIS_STREAM, record)
 
-@app.route('/', methods=['GET'])
-def index():
-    """根路径路由，用于健康检查"""
-    return jsonify({
-        "status": "ok",
-        "message": "Hello, Nginx is working!",
-        "service": "Air Quality Data API",
-        "version": "1.0"
-    })
-
 @app.route('/api/air-quality', methods=['POST'])
 @require_api_key
 def receive_air_quality_data():
