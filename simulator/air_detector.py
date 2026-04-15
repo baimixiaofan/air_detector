@@ -8,6 +8,9 @@ import threading
 import queue
 import requests
 import socket
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 尝试导入 Redis 模块
 try:
@@ -237,7 +240,8 @@ class AirQualitySimulator:
                     self.api_endpoint,
                     json=payload,
                     headers=self.api_headers,
-                    timeout=10
+                    timeout=10,
+                    verify=False  # 跳过SSL证书验证（自签名证书）
                 )
                 
                 if response.status_code in [200, 201, 202]:

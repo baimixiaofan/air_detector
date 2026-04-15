@@ -51,14 +51,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def require_api_key(f):
-    """装饰器：检查API密钥（如果设置了API_KEY环境变量）"""
+    """装饰器：检查API密钥（必须设置API_KEY环境变量）"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if API_KEY:  # 只有设置了API_KEY才进行验证
-            api_key = request.headers.get('X-API-Key')
-            if not api_key or api_key != API_KEY:
-                logger.warning(f"无效的API密钥: {api_key}")
-                return jsonify({"error": "Invalid API Key"}), 401
+        if not API_KEY:
+            logger.error("未设置API_KEY环境变量，拒绝请求")
+            return jsonify({"error": "Server configuration error: API_KEY not set"}), 500
+        api_key = request.headers.get('X-API-Key')
+        if not api_key or api_key != API_KEY:
+            logger.warning(f"无效的API密钥: {api_key}")
+            return jsonify({"error": "Invalid API Key"}), 401
         return f(*args, **kwargs)
     return decorated_function
 
