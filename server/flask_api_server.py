@@ -718,6 +718,164 @@ def get_server_logs():
         }), 500
 
 
+@app.route('/api/config/api_key', methods=['GET'])
+def get_api_key_config():
+    """
+    获取当前配置的 API Key（从 .sh 文件读取）
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到获取API Key配置请求 - 来源IP: {client_ip}")
+    
+    try:
+        # 尝试从 .sh 文件中读取 API_KEY
+        sh_file_path = os.path.join('..', 'simulator', 'start_simulators.sh')
+        
+        if not os.path.exists(sh_file_path):
+            # 如果 .sh 文件不存在，返回服务器端硬编码的 API_KEY
+            return jsonify({
+                "status": "success",
+                "source": "server_code",
+                "api_key": API_KEY,
+                "message": "未找到 .sh 配置文件，使用服务器端配置"
+            }), 200
+        
+        # 读取 .sh 文件内容
+        with open(sh_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 使用正则表达式提取 API_KEY 的值
+        import re
+        match = re.search(r'API_KEY="([^"]*)"', content)
+        
+        if match:
+            api_key_value = match.group(1)
+            response_data = {
+                "status": "success",
+                "source": "config_file",
+                "sh_file": sh_file_path,
+                "api_key": api_key_value,
+                "message": f"成功从配置文件读取 API Key"
+            }
+            
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功获取API Key配置")
+            return jsonify(response_data), 200
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "在 .sh 文件中未找到 API_KEY 配置项",
+                "sh_file": sh_file_path
+            }), 404
+            
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"获取API Key配置时发生错误: {str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+
+
+@app.route('/api/config/api_key', methods=['POST'])
+def update_api_key_config():
+    """
+    更新 .sh 文件中的 API Key 配置
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到更新API Key请求 - 来源IP: {client_ip}")
+    
+    try:
+        # 获取请求数据
+        data = request.json
+        
+        if not data or 'new_api_key' not in data:
+            return jsonify({
+                "status": "error",
+                "message": "缺少必需参数: new_api_key"
+            }), 400
+        
+        new_api_key = str(data['new_api_key']).strip()
+        
+        if not new_api_key:
+            return jsonify({
+                "status": "error",
+                "message": "API Key 不能为空"
+            }), 400
+        
+        # 验证 API Key 格式（简单验证）
+        if len(new_api_key) > 64:
+            return jsonify({
+                "status": "error",
+                "message": "API Key 长度不能超过 64 个字符"
+            }), 400
+        
+        # 更新 .sh 文件中的 API_KEY
+        sh_file_path = os.path.join('..', 'simulator', 'start_simulators.sh')
+        
+        if not os.path.exists(sh_file_path):
+            # 如果 .sh 文件不存在，更新服务器端的 API_KEY
+            global API_KEY
+            old_api_key = API_KEY
+            API_KEY = new_api_key
+            
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - 已更新服务器端API Key: {old_api_key} -> {new_api_key}")
+            return jsonify({
+                "status": "success",
+                "source": "server_code",
+                "old_api_key": old_api_key,
+                "new_api_key": new_api_key,
+                "message": "已更新服务器端 API Key（未找到 .sh 配置文件）"
+            }), 200
+        
+        # 读取并修改 .sh 文件
+        with open(sh_file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 提取旧的 API_KEY
+        import re
+        match = re.search(r'API_KEY="([^"]*)"', content)
+        old_api_key = match.group(1) if match else None
+        
+        # 替换 API_KEY 值
+        new_content = re.sub(
+            r'API_KEY="[^"]*"',
+            f'API_KEY="{new_api_key}"',
+            content
+        )
+        
+        # 写回文件
+        with open(sh_file_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        
+        # 同时更新服务器端的 API_KEY
+        global API_KEY
+        API_KEY = new_api_key
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功更新API Key: {old_api_key} -> {new_api_key}")
+        
+        return jsonify({
+            "status": "success",
+            "source": "config_file",
+            "sh_file": sh_file_path,
+            "old_api_key": old_api_key,
+            "new_api_key": new_api_key,
+            "message": f"成功更新 API Key: {old_api_key} -> {new_api_key}"
+        }), 200
+        
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"更新API Key时发生错误: {str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+
+
 @app.route('/monitor')
 def monitor_page():
     """

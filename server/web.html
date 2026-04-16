@@ -441,6 +441,25 @@
 
         <div class="right-panel">
             <div class="panel">
+                <div class="panel-header">API Key 配置</div>
+                <div class="panel-content">
+                    <div style="margin-bottom: 10px;">
+                        <label style="font-size: 0.85em; color: #666; display: block; margin-bottom: 5px;">当前 API Key:</label>
+                        <input type="text" id="current-api-key" readonly 
+                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f8f9fa; font-family: monospace;">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="font-size: 0.85em; color: #666; display: block; margin-bottom: 5px;">新的 API Key:</label>
+                        <input type="text" id="new-api-key" placeholder="输入新的 API Key..." 
+                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace;">
+                    </div>
+                    <button class="start-btn" onclick="updateApiKey()" style="width: 100%; font-size: 1em; padding: 10px;">
+                        更新 API Key
+                    </button>
+                    <div id="api-key-status" style="margin-top: 8px; font-size: 0.8em; text-align: center;"></div>
+                </div>
+            </div>
+            <div class="panel">
                 <div class="panel-header">模拟器状态</div>
                 <div class="panel-content">
                     <div class="stats-row">
@@ -838,6 +857,77 @@
             container.scrollTop = container.scrollHeight;
         }
 
+        async function fetchApiKeyConfig() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/config/api_key`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    document.getElementById('current-api-key').value = data.api_key || '(未配置)';
+                    
+                    const statusDiv = document.getElementById('api-key-status');
+                    statusDiv.innerHTML = `<span style="color: #28a745;">✓ 已加载 (${data.source})</span>`;
+                } else {
+                    document.getElementById('api-key-status').innerHTML = 
+                        `<span style="color: #dc3545;">${data.message || '获取失败'}</span>`;
+                }
+            } catch (error) {
+                console.error('获取API Key配置失败:', error);
+                document.getElementById('api-key-status').innerHTML = 
+                    `<span style="color: #dc3545;">获取失败: ${error.message}</span>`;
+            }
+        }
+
+        async function updateApiKey() {
+            const newKey = document.getElementById('new-api-key').value.trim();
+            
+            if (!newKey) {
+                alert('请输入新的 API Key');
+                return;
+            }
+            
+            if (!confirm(`确定要将 API Key 更新为 "${newKey}" 吗？\n\n注意：这将同时修改 .sh 文件和服务器端配置！`)) {
+                return;
+            }
+            
+            const statusDiv = document.getElementById('api-key-status');
+            statusDiv.innerHTML = '<span style="color: #f39c12;">⏳ 更新中...</span>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/config/api_key`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ new_api_key: newKey })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
+                
+                // 更新显示
+                document.getElementById('current-api-key').value = newKey;
+                document.getElementById('new-api-key').value = '';
+                
+                statusDiv.innerHTML = `
+                    <div style="color: #28a745; margin-bottom: 5px;">
+                        ✓ 更新成功！
+                    </div>
+                    <div style="font-size: 0.9em; color: #666;">
+                        ${data.old_api_key} → ${data.new_api_key}
+                        <br>来源: ${data.source}
+                    </div>
+                `;
+                
+                alert(`API Key 已成功更新！\n\n旧值: ${data.old_api_key}\n新值: ${data.new_api_key}\n\n已同步到 .sh 文件和服务器端`);
+                
+            } catch (error) {
+                console.error('更新API Key失败:', error);
+                statusDiv.innerHTML = `<span style="color: #dc3545;">✗ 更新失败: ${error.message}</span>`;
+                alert(`更新API Key失败: ${error.message}`);
+            }
+        }
+
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
@@ -850,6 +940,7 @@
             fetchQueueData();
             fetchDockerLogs();
             fetchServerLogs();
+            fetchApiKeyConfig();  // 加载当前 API Key 配置
             
             setInterval(fetchSimulatorStatus, 3000);
             setInterval(fetchQueueData, 3000);
