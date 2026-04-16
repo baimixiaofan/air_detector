@@ -783,6 +783,7 @@ def update_api_key_config():
     """
     更新 .sh 文件中的 API Key 配置
     """
+    global API_KEY
     request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     client_ip = request.remote_addr
     
@@ -852,7 +853,6 @@ def update_api_key_config():
             f.write(new_content)
         
         # 同时更新服务器端的 API_KEY
-        global API_KEY
         API_KEY = new_api_key
         
         logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功更新API Key: {old_api_key} -> {new_api_key}")
