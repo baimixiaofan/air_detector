@@ -326,7 +326,7 @@
 
         .logs-container {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: 1fr 1fr;
             gap: 15px;
             flex-shrink: 0;
         }
@@ -474,28 +474,6 @@
                 </div>
             </div>
             <div class="panel">
-                <div class="panel-header">服务器状态控制</div>
-                <div class="panel-content">
-                    <div style="margin-bottom: 10px;">
-                        <label style="font-size: 0.85em; color: #666; display: block; margin-bottom: 5px;">当前状态:</label>
-                        <div id="server-status-display" style="padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb;">
-                            ● 在线
-                        </div>
-                    </div>
-                    <div style="margin-bottom: 10px;" id="offline-reason-container" style="display: none;">
-                        <label style="font-size: 0.85em; color: #666; display: block; margin-bottom: 5px;">下线原因:</label>
-                        <input type="text" id="offline-reason" placeholder="输入下线原因..." 
-                               style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 5px;"
-                               value="演示重传机制 - 服务器维护中">
-                    </div>
-                    <div style="display: flex; gap: 8px;">
-                        <button class="start-btn" onclick="setServerOnline()" style="flex: 1; background-color: #28a745;">上线</button>
-                        <button class="stop-btn" onclick="setServerOffline()" style="flex: 1; background-color: #dc3545;">下线</button>
-                    </div>
-                    <div id="server-control-status" style="margin-top: 8px; font-size: 0.8em; text-align: center;"></div>
-                </div>
-            </div>
-            <div class="panel">
                 <div class="panel-header">模拟器状态</div>
                 <div class="panel-content">
                     <div class="stats-row">
@@ -572,24 +550,6 @@
             <div class="log-content" id="server-logs-content">
                 <div class="loading">加载中...</div>
             </div>
-        </div>
-
-        <div class="log-panel">
-            <div class="log-header">
-                <span>Nginx 日志 (HTTPS证明)</span>
-                <div class="log-controls">
-                    <input type="number" id="nginx-lines-input" min="20" max="200" value="50" style="width: 60px;">
-                    <button class="refresh-btn" onclick="fetchNginxLogs()">刷新</button>
-                    <label class="auto-refresh-toggle">
-                        <input type="checkbox" id="nginx-auto-refresh" checked>
-                        自动
-                    </label>
-                </div>
-            </div>
-            <div class="log-content" id="nginx-logs-content">
-                <div class="loading">加载中...</div>
-            </div>
-        </div>
     </div>
 
     <div class="footer">
@@ -981,158 +941,6 @@
             }
         }
 
-        // 服务器状态控制函数
-        async function setServerOnline() {
-            const statusDiv = document.getElementById('server-control-status');
-            statusDiv.innerHTML = '<span style="color: #f39c12;">⏳ 正在上线...</span>';
-            
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/server/control`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'online' })
-                });
-                
-                const data = await response.json();
-                
-                if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
-                
-                updateServerStatusDisplay(true);
-                statusDiv.innerHTML = '<span style="color: #28a745;">✓ 服务器已上线</span>';
-                
-                setTimeout(() => { statusDiv.innerHTML = ''; }, 3000);
-                
-            } catch (error) {
-                console.error('上线失败:', error);
-                statusDiv.innerHTML = `<span style="color: #dc3545;">✗ 失败: ${error.message}</span>`;
-            }
-        }
-
-        async function setServerOffline() {
-            const reason = document.getElementById('offline-reason').value.trim() || '维护中';
-            const statusDiv = document.getElementById('server-control-status');
-            statusDiv.innerHTML = '<span style="color: #f39c12;">⏳ 正在下线...</span>';
-            
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/server/control`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'offline', reason: reason })
-                });
-                
-                const data = await response.json();
-                
-                if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
-                
-                updateServerStatusDisplay(false, data.reason);
-                statusDiv.innerHTML = `<span style="color: #dc3545;">✓ 服务器已下线：${data.reason}</span>`;
-                
-                setTimeout(() => { statusDiv.innerHTML = ''; }, 5000);
-                
-            } catch (error) {
-                console.error('下线失败:', error);
-                statusDiv.innerHTML = `<span style="color: #dc3545;">✗ 失败: ${error.message}</span>`;
-            }
-        }
-
-        function updateServerStatusDisplay(isOnline, reason = '') {
-            const display = document.getElementById('server-status-display');
-            
-            if (isOnline) {
-                display.style.backgroundColor = '#d4edda';
-                display.style.color = '#155724';
-                display.style.borderColor = '#c3e6cb';
-                display.innerHTML = '● 在线';
-            } else {
-                display.style.backgroundColor = '#f8d7da';
-                display.style.color = '#721c24';
-                display.style.borderColor = '#f5c6cb';
-                display.innerHTML = `● 离线<br><small>${reason}</small>`;
-            }
-        }
-
-        async function checkServerStatus() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/server/status`);
-                const data = await response.json();
-                
-                if (data.server_online) {
-                    updateServerStatusDisplay(true);
-                } else {
-                    updateServerStatusDisplay(false, data.server_offline_reason);
-                }
-                
-            } catch (error) {
-                console.error('检查服务器状态失败:', error);
-            }
-        }
-
-        // Nginx日志获取函数
-        async function fetchNginxLogs() {
-            const lines = parseInt(document.getElementById('nginx-lines-input').value) || 50;
-            const contentDiv = document.getElementById('nginx-logs-content');
-            
-            contentDiv.innerHTML = '<div class="loading">加载中...</div>';
-            
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/nginx_logs?lines=${lines}`);
-                const data = await response.json();
-                
-                if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);
-                
-                if (data.logs && data.logs.length > 0) {
-                    let html = '';
-                    
-                    data.logs.forEach(log => {
-                        let lineClass = 'log-line';
-                        
-                        // 根据内容判断类型
-                        if (log.is_https) {
-                            lineClass += ' success';  // HTTPS请求用绿色
-                        } else if ('443' in log.content) {
-                            lineClass += ' info';     // 端口443用蓝色
-                        } else if ('80' in log.content) {
-                            lineClass += ' warning';  // 端口80用橙色（HTTP重定向）
-                        }
-                        
-                        html += `<div class="${lineClass}">[${log.source}] ${escapeHtml(log.content)}</div>`;
-                    });
-                    
-                    contentDiv.innerHTML = html;
-                    
-                    // 自动滚动到底部
-                    contentDiv.scrollTop = contentDiv.scrollHeight;
-                    
-                } else {
-                    contentDiv.innerHTML = '<div class="no-data">暂无Nginx日志</div>';
-                }
-                
-            } catch (error) {
-                console.error('获取Nginx日志失败:', error);
-                contentDiv.innerHTML = `<div class="no-data" style="color: #e74c3c;">获取Nginx日志失败: ${error.message}</div>`;
-            }
-        }
-
-        // Nginx日志自动刷新
-        let nginxAutoRefreshInterval = null;
-
-        function startNginxAutoRefresh() {
-            if (nginxAutoRefreshInterval) clearInterval(nginxAutoRefreshInterval);
-            
-            const checkbox = document.getElementById('nginx-auto-refresh');
-            if (checkbox && checkbox.checked) {
-                fetchNginxLogs();
-                nginxAutoRefreshInterval = setInterval(fetchNginxLogs, 5000);  // 每5秒刷新一次
-            }
-        }
-
-        function stopNginxAutoRefresh() {
-            if (nginxAutoRefreshInterval) {
-                clearInterval(nginxAutoRefreshInterval);
-                nginxAutoRefreshInterval = null;
-            }
-        }
-
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text;
@@ -1145,9 +953,7 @@
             fetchQueueData();
             fetchDockerLogs();
             fetchServerLogs();
-            fetchNginxLogs();  // 加载Nginx日志
             fetchApiKeyConfig();  // 加载当前 API Key 配置
-            checkServerStatus(); // 检查服务器状态
             
             setInterval(fetchSimulatorStatus, 3000);
             setInterval(fetchQueueData, 3000);
@@ -1160,23 +966,11 @@
                 if (document.getElementById('server-auto-refresh').checked) {
                     fetchServerLogs();
                 }
-                if (document.getElementById('nginx-auto-refresh').checked) {
-                    fetchNginxLogs();
-                }
             }, 5000);
             
             // 容器选择变化时刷新
             document.getElementById('docker-container-select').addEventListener('change', () => {
                 fetchDockerLogs();
-            });
-            
-            // Nginx日志复选框变化时控制自动刷新
-            document.getElementById('nginx-auto-refresh')?.addEventListener('change', () => {
-                if (document.getElementById('nginx-auto-refresh').checked) {
-                    startNginxAutoRefresh();
-                } else {
-                    stopNginxAutoRefresh();
-                }
             });
         });
     </script>
