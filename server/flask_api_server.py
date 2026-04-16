@@ -609,6 +609,52 @@ def get_docker_logs():
     logger.info(f"[{request_time}] 收到获取Docker日志请求 - 来源IP: {client_ip}, 容器: {container_name}")
     
     try:
+        # 首先检查容器是否存在
+        check_cmd = ['docker', 'ps', '-a', '--filter', f'name={container_name}', '--format', '{{.Names}}']
+        check_result = subprocess.run(
+            check_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        existing_containers = check_result.stdout.strip().split('\n') if check_result.stdout.strip() else []
+        
+        if container_name not in existing_containers:
+            response_data = {
+                "status": "success",
+                "container": container_name,
+                "lines": 0,
+                "logs": [],
+                "message": f"容器 {container_name} 不存在或未运行",
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - 容器 {container_name} 不存在")
+            return jsonify(response_data), 200
+        
+        # 检查容器是否运行
+        running_cmd = ['docker', 'ps', '--filter', f'name={container_name}', '--format', '{{.Names}}']
+        running_result = subprocess.run(
+            running_cmd,
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        
+        running_containers = running_result.stdout.strip().split('\n') if running_result.stdout.strip() else []
+        
+        if container_name not in running_containers:
+            response_data = {
+                "status": "success",
+                "container": container_name,
+                "lines": 0,
+                "logs": [],
+                "message": f"容器 {container_name} 已停止运行",
+                "timestamp": datetime.now().isoformat()
+            }
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - 容器 {container_name} 已停止")
+            return jsonify(response_data), 200
+        
         # 使用 docker logs 命令获取容器日志
         cmd = ['docker', 'logs', '--tail', str(lines), '-t', container_name]
         
@@ -619,27 +665,22 @@ def get_docker_logs():
             timeout=10
         )
         
-        if result.returncode != 0:
-            error_msg = f"获取容器 {container_name} 日志失败: {result.stderr}"
-            logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
-            return jsonify({
-                "status": "error",
-                "message": error_msg,
-                "container": container_name
-            }), 500
+        # 解析日志内容（合并stdout和stderr）
+        log_output = result.stdout + result.stderr
+        log_lines = log_output.strip().split('\n') if log_output.strip() else []
         
-        # 解析日志内容
-        log_lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+        # 取最后N行
+        final_lines = log_lines[-lines:] if len(log_lines) > lines else log_lines
         
         response_data = {
             "status": "success",
             "container": container_name,
-            "lines": len(log_lines),
-            "logs": log_lines[-lines:] if len(log_lines) > lines else log_lines,
+            "lines": len(final_lines),
+            "logs": final_lines,
             "timestamp": datetime.now().isoformat()
         }
         
-        logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功获取容器 {container_name} 的 {len(response_data['logs'])} 条日志")
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功获取容器 {container_name} 的 {len(final_lines)} 条日志")
         return jsonify(response_data), 200
         
     except subprocess.TimeoutExpired:
