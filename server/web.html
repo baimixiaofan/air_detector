@@ -326,7 +326,7 @@
 
         .logs-container {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 15px;
             flex-shrink: 0;
         }
@@ -474,6 +474,29 @@
                 </div>
             </div>
             <div class="panel">
+                <div class="panel-header" style="background-color: #e74c3c;">服务控制</div>
+                <div class="panel-content">
+                    <div style="margin-bottom: 10px;">
+                        <label style="font-size: 0.85em; color: #666; display: block; margin-bottom: 5px;">Flask 服务状态:</label>
+                        <div id="flask-status-display" style="padding: 10px; border-radius: 5px; background-color: #d4edda; color: #155724; font-weight: bold; text-align: center; margin-bottom: 10px;">
+                            在线
+                        </div>
+                    </div>
+                    <button class="stop-btn" onclick="toggleFlaskStatus()" style="width: 100%; font-size: 1em; padding: 10px;" id="toggle-flask-btn">
+                        下线服务（演示重传）
+                    </button>
+                    <div id="flask-toggle-status" style="margin-top: 8px; font-size: 0.75em; text-align: center; color: #666;">
+                        点击按钮切换Flask服务状态
+                    </div>
+                    <div style="margin-top: 10px; padding: 8px; background-color: #fff3cd; border-radius: 5px; font-size: 0.75em; color: #856404;">
+                        <strong>演示说明：</strong><br>
+                        • 点击"下线"后，模拟器发送数据会失败<br>
+                        • 模拟器会自动重试（重传机制）<br>
+                        • 再次点击"上线"恢复正常
+                    </div>
+                </div>
+            </div>
+            <div class="panel">
                 <div class="panel-header">模拟器状态</div>
                 <div class="panel-content">
                     <div class="stats-row">
@@ -550,6 +573,24 @@
             <div class="log-content" id="server-logs-content">
                 <div class="loading">加载中...</div>
             </div>
+        </div>
+
+        <div class="log-panel">
+            <div class="log-header" style="background-color: #e67e22;">
+                <span>Nginx 日志 (HTTPS验证)</span>
+                <div class="log-controls">
+                    <input type="number" id="nginx-lines-input" min="20" max="500" value="50" style="width: 60px;">
+                    <button class="refresh-btn" onclick="fetchNginxLogs()">刷新</button>
+                    <label class="auto-refresh-toggle">
+                        <input type="checkbox" id="nginx-auto-refresh" checked>
+                        自动
+                    </label>
+                </div>
+            </div>
+            <div class="log-content" id="nginx-logs-content">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
     </div>
 
     <div class="footer">
@@ -892,6 +933,110 @@
             }
         }
 
+        async function fetchNginxLogs() {
+            const lines = document.getElementById('nginx-lines-input').value;
+            const contentDiv = document.getElementById('nginx-logs-content');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/nginx-logs?lines=${lines}`);
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let html = '';
+                    data.logs.forEach(log => {
+                        let className = 'log-line';
+                        if (log.includes('[access.log]')) className += ' success';
+                        else if (log.includes('[error.log]')) className += ' error';
+                        else if (log.includes('[info]')) className += ' info';
+                        else if (log.includes('[提示]') || log.includes('[系统提示]')) className += ' warning';
+                        
+                        html += `<div class="${className}">${escapeHtml(log)}</div>`;
+                    });
+                    
+                    contentDiv.innerHTML = html || '<div class="no-data">暂无日志</div>';
+                    
+                    // 滚动到底部
+                    contentDiv.scrollTop = contentDiv.scrollHeight;
+                } else {
+                    contentDiv.innerHTML = `<div class="error">获取Nginx日志失败: ${data.message || '未知错误'}</div>`;
+                }
+            } catch (error) {
+                console.error('获取Nginx日志失败:', error);
+                contentDiv.innerHTML = `<div class="error">获取Nginx日志失败: ${error.message}</div>`;
+            }
+        }
+
+        async function toggleFlaskStatus() {
+            const btn = document.getElementById('toggle-flask-btn');
+            const statusDiv = document.getElementById('flask-toggle-status');
+            
+            btn.disabled = true;
+            btn.textContent = '切换中...';
+            statusDiv.innerHTML = '<span style="color: #f39c12;">正在切换状态...</span>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/toggle-status`, { method: 'POST' });
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                
+                // 更新显示
+                updateFlaskStatusDisplay(data.online);
+                
+                statusDiv.innerHTML = `<span style="color: #28a745;">✓ ${data.message}</span>`;
+                
+                // 3秒后清除状态消息
+                setTimeout(() => {
+                    statusDiv.innerHTML = '点击按钮切换Flask服务状态';
+                }, 3000);
+                
+            } catch (error) {
+                console.error('切换Flask状态失败:', error);
+                statusDiv.innerHTML = `<span style="color: #dc3545;">切换失败: ${error.message}</span>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function fetchFlaskStatus() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/status`);
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    updateFlaskStatusDisplay(data.online);
+                }
+            } catch (error) {
+                console.error('获取Flask状态失败:', error);
+            }
+        }
+
+        function updateFlaskStatusDisplay(isOnline) {
+            const displayDiv = document.getElementById('flask-status-display');
+            const btn = document.getElementById('toggle-flask-btn');
+            
+            if (isOnline) {
+                displayDiv.textContent = '在线';
+                displayDiv.style.backgroundColor = '#d4edda';
+                displayDiv.style.color = '#155724';
+                btn.textContent = '下线服务（演示重传）';
+                btn.className = 'stop-btn';
+            } else {
+                displayDiv.textContent = '下线';
+                displayDiv.style.backgroundColor = '#f8d7da';
+                displayDiv.style.color = '#721c24';
+                btn.textContent = '上线服务';
+                btn.className = 'start-btn';
+            }
+        }
+
         async function updateApiKey() {
             const newKey = document.getElementById('new-api-key').value.trim();
             
@@ -953,6 +1098,8 @@
             fetchQueueData();
             fetchDockerLogs();
             fetchServerLogs();
+            fetchNginxLogs();  // 加载Nginx日志
+            fetchFlaskStatus();  // 加载Flask状态
             fetchApiKeyConfig();  // 加载当前 API Key 配置
             
             setInterval(fetchSimulatorStatus, 3000);
@@ -965,6 +1112,9 @@
                 }
                 if (document.getElementById('server-auto-refresh').checked) {
                     fetchServerLogs();
+                }
+                if (document.getElementById('nginx-auto-refresh').checked) {
+                    fetchNginxLogs();
                 }
             }, 5000);
             
