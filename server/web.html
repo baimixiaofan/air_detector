@@ -310,6 +310,95 @@
             font-size: 0.75em;
             padding: 5px;
         }
+
+        .logs-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .log-panel {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+            height: 300px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-header {
+            background-color: #9b59b6;
+            color: white;
+            padding: 10px 15px;
+            font-weight: bold;
+            font-size: 0.95em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .log-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .log-controls select, .log-controls input {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        .refresh-btn {
+            background-color: #3498db;
+            color: white;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        .refresh-btn:hover {
+            background-color: #2980b9;
+        }
+
+        .log-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.85em;
+            line-height: 1.4;
+        }
+
+        .log-line {
+            margin-bottom: 4px;
+            word-break: break-all;
+        }
+
+        .log-line.info { color: #3498db; }
+        .log-line.error { color: #e74c3c; }
+        .log-line.warning { color: #f39c12; }
+        .log-line.success { color: #2ecc71; }
+        .log-line.md5 { color: #9b59b6; font-weight: bold; }
+
+        .auto-refresh-toggle {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.85em;
+            color: white;
+        }
+
+        .auto-refresh-toggle input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
     </style>
 </head>
 <body>
@@ -388,8 +477,51 @@
         </div>
     </div>
 
+    <div class="logs-container">
+        <div class="log-panel">
+            <div class="log-header">
+                <span>Docker 容器日志 (sim1)</span>
+                <div class="log-controls">
+                    <select id="docker-container-select">
+                        <option value="sim1">sim1</option>
+                        <option value="sim2">sim2</option>
+                        <option value="sim3">sim3</option>
+                        <option value="sim4">sim4</option>
+                        <option value="sim5">sim5</option>
+                    </select>
+                    <input type="number" id="docker-lines-input" min="10" max="200" value="50" style="width: 60px;">
+                    <button class="refresh-btn" onclick="fetchDockerLogs()">刷新</button>
+                    <label class="auto-refresh-toggle">
+                        <input type="checkbox" id="docker-auto-refresh" checked>
+                        自动
+                    </label>
+                </div>
+            </div>
+            <div class="log-content" id="docker-logs-content">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        <div class="log-panel">
+            <div class="log-header">
+                <span>服务器端日志</span>
+                <div class="log-controls">
+                    <input type="number" id="server-lines-input" min="20" max="500" value="100" style="width: 70px;">
+                    <button class="refresh-btn" onclick="fetchServerLogs()">刷新</button>
+                    <label class="auto-refresh-toggle">
+                        <input type="checkbox" id="server-auto-refresh" checked>
+                        自动
+                    </label>
+                </div>
+            </div>
+            <div class="log-content" id="server-logs-content">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+
     <div class="footer">
-        页面每3秒自动刷新
+        页面每3秒自动刷新 | 日志每5秒自动刷新
     </div>
 
     <script>
@@ -605,12 +737,137 @@
             }
         }
 
+        async function fetchDockerLogs() {
+            const container = document.getElementById('docker-container-select').value;
+            const lines = parseInt(document.getElementById('docker-lines-input').value) || 50;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/docker_logs?container=${container}&lines=${lines}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                displayDockerLogs(data);
+            } catch (error) {
+                console.error('获取Docker日志失败:', error);
+                document.getElementById('docker-logs-content').innerHTML = 
+                    `<div class="log-line error">获取Docker日志失败: ${error.message}</div>`;
+            }
+        }
+
+        function displayDockerLogs(data) {
+            const container = document.getElementById('docker-logs-content');
+            
+            if (data.status === 'error') {
+                container.innerHTML = `<div class="log-line error">${data.message}</div>`;
+                return;
+            }
+            
+            if (!data.logs || data.logs.length === 0) {
+                container.innerHTML = '<div class="log-line info">暂无日志</div>';
+                return;
+            }
+            
+            let html = '';
+            data.logs.forEach(line => {
+                let lineClass = 'log-line';
+                
+                if (line.includes('[MD5 加密]')) {
+                    lineClass += ' md5';
+                } else if (line.includes('ERROR') || line.includes('error') || line.includes('Error')) {
+                    lineClass += ' error';
+                } else if (line.includes('WARNING') || line.includes('warning')) {
+                    lineClass += ' warning';
+                } else if (line.includes('成功') || line.includes('success') || line.includes('OK')) {
+                    lineClass += ' success';
+                } else if (line.includes('INFO') || line.includes('info')) {
+                    lineClass += ' info';
+                }
+                
+                html += `<div class="${lineClass}">${escapeHtml(line)}</div>`;
+            });
+            
+            container.innerHTML = html;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function fetchServerLogs() {
+            const lines = parseInt(document.getElementById('server-lines-input').value) || 100;
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/server_logs?lines=${lines}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                displayServerLogs(data);
+            } catch (error) {
+                console.error('获取服务器日志失败:', error);
+                document.getElementById('server-logs-content').innerHTML = 
+                    `<div class="log-line error">获取服务器日志失败: ${error.message}</div>`;
+            }
+        }
+
+        function displayServerLogs(data) {
+            const container = document.getElementById('server-logs-content');
+            
+            if (data.status === 'error') {
+                container.innerHTML = `<div class="log-line error">${data.message}</div>`;
+                return;
+            }
+            
+            if (!data.logs || data.logs.length === 0) {
+                container.innerHTML = '<div class="log-line info">暂无日志</div>';
+                return;
+            }
+            
+            let html = '';
+            data.logs.forEach(line => {
+                let lineClass = 'log-line';
+                
+                if (line.includes('MD5验证成功') || line.includes('MD5验证失败')) {
+                    lineClass += ' md5';
+                } else if (line.includes('ERROR') || line.includes('error') || line.includes('错误') || line.includes('失败')) {
+                    lineClass += ' error';
+                } else if (line.includes('WARNING') || line.includes('warning') || line.includes('警告')) {
+                    lineClass += ' warning';
+                } else if (line.includes('成功') || line.includes('success') || line.includes('INFO')) {
+                    lineClass += ' success';
+                }
+                
+                html += `<div class="${lineClass}">${escapeHtml(line)}</div>`;
+            });
+            
+            container.innerHTML = html;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             initChart();
             fetchSimulatorStatus();
             fetchQueueData();
+            fetchDockerLogs();
+            fetchServerLogs();
+            
             setInterval(fetchSimulatorStatus, 3000);
             setInterval(fetchQueueData, 3000);
+            
+            // 日志自动刷新（每5秒）
+            setInterval(() => {
+                if (document.getElementById('docker-auto-refresh').checked) {
+                    fetchDockerLogs();
+                }
+                if (document.getElementById('server-auto-refresh').checked) {
+                    fetchServerLogs();
+                }
+            }, 5000);
+            
+            // 容器选择变化时刷新
+            document.getElementById('docker-container-select').addEventListener('change', () => {
+                fetchDockerLogs();
+            });
         });
     </script>
 </body>

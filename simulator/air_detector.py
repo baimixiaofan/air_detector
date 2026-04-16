@@ -221,6 +221,10 @@ class AirQualitySimulator:
         payload_str = json.dumps(payload, sort_keys=True)
         md5_hash = hashlib.md5(payload_str.encode('utf-8')).hexdigest()
         
+        # 打印MD5加密信息（用于演示）
+        print(f"\n[MD5 加密] 数据摘要：{md5_hash}")
+        print(f"[MD5 加密] 原始数据：{payload_str[:80]}...")
+        
         # 添加MD5哈希到请求头
         headers_with_md5 = self.api_headers.copy()
         headers_with_md5['X-Content-MD5'] = md5_hash
