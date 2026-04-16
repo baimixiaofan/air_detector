@@ -9,6 +9,7 @@ import redis
 from flask import Flask, request, jsonify, send_from_directory
 import tenacity
 from functools import wraps
+import hashlib
 
 # 从环境变量读取配置
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
@@ -133,6 +134,21 @@ def receive_air_quality_data():
         if not is_valid:
             logger.error(f"[{request_time}] 来源IP: {client_ip} - 数据验证失败: {error_msg}")
             return jsonify({"error": error_msg}), 400
+        
+        # 验证MD5哈希
+        received_md5 = request.headers.get('X-Content-MD5')
+        if received_md5:
+            # 计算接收到的数据的MD5哈希
+            payload_str = json.dumps(data, sort_keys=True)
+            calculated_md5 = hashlib.md5(payload_str.encode('utf-8')).hexdigest()
+            
+            if received_md5 != calculated_md5:
+                error_msg = "数据完整性验证失败：MD5哈希不匹配"
+                logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+                logger.error(f"[{request_time}] 来源IP: {client_ip} - 接收的MD5: {received_md5}")
+                logger.error(f"[{request_time}] 来源IP: {client_ip} - 计算的MD5: {calculated_md5}")
+                return jsonify({"error": error_msg}), 400
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - MD5验证成功")
         
         logger.info(f"[{request_time}] 来源IP: {client_ip} - 接收到空气质量数据")
         logger.info(f"[{request_time}] 来源IP: {client_ip} - 时间戳: {data.get('timestamp', 'N/A')}")

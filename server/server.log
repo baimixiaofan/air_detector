@@ -9,3 +9,15 @@
 2026-04-03 16:10:28,194 INFO:  * Detected change in 'D:\\Èí¼şÉè¼Æ\\server\\flask_api_server.py', reloading
 2026-04-03 16:10:28,335 INFO:  * Restarting with stat
 2026-04-03 16:10:53,796 INFO: ¿ÕÆøÖÊÁ¿Êı¾İAPI·şÎñÆ÷Æô¶¯
+2026-04-16 10:20:57,447 INFO: ¿ÕÆøÖÊÁ¿Êı¾İAPI·şÎñÆ÷Æô¶¯
+2026-04-16 10:20:57,461 INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.244.233.242:5000
+2026-04-16 10:20:57,461 INFO: [33mPress CTRL+C to quit[0m
+2026-04-16 10:21:24,567 INFO: ¿ÕÆøÖÊÁ¿Êı¾İAPI·şÎñÆ÷Æô¶¯
+2026-04-16 10:21:24,587 INFO: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://10.244.233.242:5000
+2026-04-16 10:21:24,587 INFO: [33mPress CTRL+C to quit[0m
