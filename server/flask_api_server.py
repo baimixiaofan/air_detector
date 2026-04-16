@@ -595,6 +595,129 @@ def stop_all_simulators():
             "message": error_msg
         }), 500
 
+@app.route('/api/docker_logs', methods=['GET'])
+def get_docker_logs():
+    """
+    获取指定 Docker 容器的实时日志
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    container_name = request.args.get('container', 'sim1')
+    lines = int(request.args.get('lines', 50))
+    
+    logger.info(f"[{request_time}] 收到获取Docker日志请求 - 来源IP: {client_ip}, 容器: {container_name}")
+    
+    try:
+        # 使用 docker logs 命令获取容器日志
+        cmd = ['docker', 'logs', '--tail', str(lines), '-t', container_name]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            error_msg = f"获取容器 {container_name} 日志失败: {result.stderr}"
+            logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+            return jsonify({
+                "status": "error",
+                "message": error_msg,
+                "container": container_name
+            }), 500
+        
+        # 解析日志内容
+        log_lines = result.stdout.strip().split('\n') if result.stdout.strip() else []
+        
+        response_data = {
+            "status": "success",
+            "container": container_name,
+            "lines": len(log_lines),
+            "logs": log_lines[-lines:] if len(log_lines) > lines else log_lines,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功获取容器 {container_name} 的 {len(response_data['logs'])} 条日志")
+        return jsonify(response_data), 200
+        
+    except subprocess.TimeoutExpired:
+        error_msg = f"获取容器 {container_name} 日志超时"
+        logger.error(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 408
+        
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"获取Docker日志时发生未知错误: {str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+
+
+@app.route('/api/server_logs', methods=['GET'])
+def get_server_logs():
+    """
+    获取服务器端的实时日志
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    lines = int(request.args.get('lines', 100))
+    
+    logger.info(f"[{request_time}] 收到获取服务器日志请求 - 来源IP: {client_ip}")
+    
+    try:
+        log_file_path = 'server.log'
+        
+        if not os.path.exists(log_file_path):
+            error_msg = f"服务器日志文件不存在: {log_file_path}"
+            logger.warning(f"[{request_time}] 来源IP: {client_ip} - {error_msg}")
+            return jsonify({
+                "status": "success",
+                "message": error_msg,
+                "lines": 0,
+                "logs": [],
+                "timestamp": datetime.now().isoformat()
+            }), 200
+        
+        # 读取日志文件的最后N行
+        with open(log_file_path, 'r', encoding='utf-8') as f:
+            all_lines = f.readlines()
+            
+        # 获取最后N行
+        recent_logs = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        
+        # 清理换行符并过滤空行
+        cleaned_logs = [line.strip() for line in recent_logs if line.strip()]
+        
+        response_data = {
+            "status": "success",
+            "log_file": log_file_path,
+            "total_lines": len(all_lines),
+            "returned_lines": len(cleaned_logs),
+            "logs": cleaned_logs,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功获取 {len(cleaned_logs)} 条服务器日志")
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_msg = f"获取服务器日志时发生未知错误: {str(e)}"
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - {error_msg}")
+        return jsonify({
+            "status": "error",
+            "message": error_msg
+        }), 500
+
+
 @app.route('/monitor')
 def monitor_page():
     """
