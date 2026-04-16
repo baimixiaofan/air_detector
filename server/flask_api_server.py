@@ -897,4 +897,5 @@ if __name__ == '__main__':
     print(f"Redis连接状态: {'已连接' if redis_client else '未连接'}")
     logger.info("空气质量数据API服务器启动")
     # 挂载我们之前生成的证书，正式开启 HTTPS
-    app.run(host='0.0.0.0', port=5000, debug=(os.getenv('FLASK_DEBUG', 'False').lower() == 'true'), ssl_context=('server.crt', 'server.key'))
+   # 丢掉手动证书，直接使用 'adhoc' 让 Flask 每次启动时自动生成临时证书！
+    app.run(host='0.0.0.0', port=5000, debug=(os.getenv('FLASK_DEBUG', 'False').lower() == 'true'), ssl_context='adhoc')
