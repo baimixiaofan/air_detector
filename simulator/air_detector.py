@@ -45,13 +45,17 @@ class AirQualitySimulator:
         self.api_headers = api_headers or {}
         
         # 读取数据并计算统计量
+        # 读取数据并计算统计量
         try:
             self.df = pd.read_excel(input_file)
             self.cols = ['AQI', 'PM₂.₅', 'NO₂', 'SO₂', 'O₃']
-            self.data = self.df[self.cols]
+            
+            # 【核心修改】：强制将这5列转换为数字，遇到文字或"_"等符号强制变成空值(NaN)，然后删掉带有空值的脏数据行
+            self.data = self.df[self.cols].apply(pd.to_numeric, errors='coerce').dropna()
+            
             self.mean_vec = self.data.mean()
             self.cov_mat = self.data.cov()
-            print("成功读取Excel文件并计算统计量")
+            print("成功读取Excel文件，已自动清洗脏数据，并计算统计量")
         except Exception as e:
             print(f"读取Excel文件时出错：{e}")
             raise
