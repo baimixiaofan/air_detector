@@ -50,10 +50,11 @@
             gap: 15px;
             flex: 1;
             min-height: 0;
+            height: 40vh;
         }
 
         .left-panel {
-            flex: 1;
+            flex: 2;
             display: flex;
             flex-direction: column;
             gap: 15px;
@@ -61,11 +62,38 @@
         }
 
         .right-panel {
-            width: 280px;
+            flex: 1;
+            min-width: 280px;
             display: flex;
             flex-direction: column;
             gap: 15px;
             flex-shrink: 0;
+            max-width: 320px;
+        }
+
+        .control-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 250px;
+            flex-shrink: 0;
+        }
+
+        .simulator-control-panel {
+            flex-shrink: 0;
+            margin-top: auto;
+        }
+
+        .simulator-list-panel {
+            flex: 1;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .simulator-list-panel .panel-content {
+            height: 100%;
+            max-height: 200px;
+            overflow-y: auto;
         }
 
         .panel {
@@ -88,10 +116,10 @@
         }
 
         .chart-panel {
-            flex: 1;
+            flex: 1.5;
             display: flex;
             flex-direction: column;
-            min-height: 300px;
+            min-height: 150px;
         }
 
         .chart-panel .panel-content {
@@ -104,12 +132,13 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            min-height: 200px;
+            min-height: 120px;
         }
 
         .queue-panel .panel-content {
             flex: 1;
             overflow-y: auto;
+            max-height: 150px;
         }
 
         .stats-row {
@@ -459,12 +488,12 @@
                 <div class="panel-content">
                     <div style="margin-bottom: 10px;">
                         <label style="font-size: 0.85em; color: #666; display: block; margin-bottom: 5px;">当前 API Key:</label>
-                        <input type="text" id="current-api-key" readonly 
+                        <input type="text" id="current-api-key" readonly
                                style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #f8f9fa; font-family: monospace;">
                     </div>
                     <div style="margin-bottom: 10px;">
                         <label style="font-size: 0.85em; color: #666; display: block; margin-bottom: 5px;">新的 API Key:</label>
-                        <input type="text" id="new-api-key" placeholder="输入新的 API Key..." 
+                        <input type="text" id="new-api-key" placeholder="输入新的 API Key..."
                                style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 5px; font-family: monospace;">
                     </div>
                     <button class="start-btn" onclick="updateApiKey()" style="width: 100%; font-size: 1em; padding: 10px;">
@@ -488,14 +517,11 @@
                     <div id="flask-toggle-status" style="margin-top: 8px; font-size: 0.75em; text-align: center; color: #666;">
                         点击按钮切换Flask服务状态
                     </div>
-                    <div style="margin-top: 10px; padding: 8px; background-color: #fff3cd; border-radius: 5px; font-size: 0.75em; color: #856404;">
-                        <strong>演示说明：</strong><br>
-                        • 点击"下线"后，模拟器发送数据会失败<br>
-                        • 模拟器会自动重试（重传机制）<br>
-                        • 再次点击"上线"恢复正常
-                    </div>
                 </div>
             </div>
+        </div>
+
+        <div class="control-panel">
             <div class="panel">
                 <div class="panel-header">模拟器状态</div>
                 <div class="panel-content">
@@ -523,15 +549,15 @@
                     </div>
                 </div>
             </div>
-            <div class="panel" style="flex: 1; overflow: hidden;">
-                <div class="panel-content" style="height: 100%; overflow-y: auto;">
+            <div class="panel simulator-list-panel">
+                <div class="panel-content">
                     <div id="simulators-list" class="simulator-list">
                         <div class="loading">加载中...</div>
                     </div>
                 </div>
             </div>
         </div>
-        </div>
+    </div>
 
         <div class="logs-container">
         <div class="log-panel">
