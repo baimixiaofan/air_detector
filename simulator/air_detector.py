@@ -9,6 +9,7 @@ import queue
 import requests
 import socket
 import urllib3
+import hashlib
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -216,19 +217,28 @@ class AirQualitySimulator:
         for i, col in enumerate(self.cols):
             payload["data"][col] = latest_data[i]
         
-        success = self._send_with_retry(payload)
+        # 计算MD5哈希值
+        payload_str = json.dumps(payload, sort_keys=True)
+        md5_hash = hashlib.md5(payload_str.encode('utf-8')).hexdigest()
+        
+        # 添加MD5哈希到请求头
+        headers_with_md5 = self.api_headers.copy()
+        headers_with_md5['X-Content-MD5'] = md5_hash
+        
+        success = self._send_with_retry(payload, headers_with_md5)
         
         if success:
             with self.data_sent_lock:
                 self.data_sent += 1
             self._send_cached_data()
     
-    def _send_with_retry(self, payload, max_retries=3):
+    def _send_with_retry(self, payload, headers=None, max_retries=3):
         """
         带重传机制的发送方法
         
         Args:
             payload: 要发送的数据
+            headers: 请求头（可选）
             max_retries: 最大重试次数
         
         Returns:
@@ -239,7 +249,7 @@ class AirQualitySimulator:
                 response = requests.post(
                     self.api_endpoint,
                     json=payload,
-                    headers=self.api_headers,
+                    headers=headers or self.api_headers,
                     timeout=10,
                     verify=False  # 跳过SSL证书验证（自签名证书）
                 )
@@ -312,9 +322,18 @@ class AirQualitySimulator:
             success_list = []
             for i, item in enumerate(cached_data):
                 payload = item.get('payload')
-                if payload and self._send_with_retry(payload, max_retries=1):
-                    success_list.append(i)
-                    print(f"缓存数据发送成功 [{i + 1}/{len(cached_data)}]")
+                if payload:
+                    # 计算MD5哈希值
+                    payload_str = json.dumps(payload, sort_keys=True)
+                    md5_hash = hashlib.md5(payload_str.encode('utf-8')).hexdigest()
+                    
+                    # 添加MD5哈希到请求头
+                    headers_with_md5 = self.api_headers.copy()
+                    headers_with_md5['X-Content-MD5'] = md5_hash
+                    
+                    if self._send_with_retry(payload, headers_with_md5, max_retries=1):
+                        success_list.append(i)
+                        print(f"缓存数据发送成功 [{i + 1}/{len(cached_data)}]")
             
             if success_list:
                 for i in reversed(success_list):
