@@ -39,6 +39,10 @@ except Exception as e:
 
 app = Flask(__name__)
 
+# 服务器状态控制（用于演示重传机制）
+server_online = True
+server_offline_reason = ""
+
 # 配置日志
 numeric_level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
 logging.basicConfig(
@@ -115,10 +119,21 @@ def receive_air_quality_data():
     """
     接收空气质量数据的API端点
     """
+    global server_online, server_offline_reason
+    
     request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     client_ip = request.remote_addr
     
     logger.info(f"[{request_time}] 收到请求 - 来源IP: {client_ip}")
+    
+    # 检查服务器是否在线（用于演示重传机制）
+    if not server_online:
+        logger.warning(f"[{request_time}] 来源IP: {client_ip} - 服务器已下线，拒绝接收数据")
+        return jsonify({
+            "status": "error",
+            "message": f"服务器暂时不可用：{server_offline_reason}",
+            "code": "SERVER_OFFLINE"
+        }), 503
     
     try:
         # 获取POST请求中的JSON数据
@@ -914,6 +929,132 @@ def update_api_key_config():
         return jsonify({
             "status": "error",
             "message": error_msg
+        }), 500
+
+@app.route('/api/server/control', methods=['POST'])
+def control_server_status():
+    """
+    控制服务器上线/下线状态（用于演示重传机制）
+    """
+    global server_online, server_offline_reason
+    
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({"error": "请求体不是有效的JSON格式"}), 400
+        
+        action = data.get('action')
+        
+        if action == 'offline':
+            # 服务器下线
+            reason = data.get('reason', '维护中')
+            server_online = False
+            server_offline_reason = reason
+            logger.warning(f"[{request_time}] 来源IP: {client_ip} - 服务器已下线，原因：{reason}")
+            
+            return jsonify({
+                "status": "success",
+                "message": f"服务器已下线，原因：{reason}",
+                "server_online": False,
+                "reason": reason,
+                "timestamp": datetime.now().isoformat()
+            }), 200
+            
+        elif action == 'online':
+            # 服务器上线
+            server_online = True
+            server_offline_reason = ""
+            logger.info(f"[{request_time}] 来源IP: {client_ip} - 服务器已上线")
+            
+            return jsonify({
+                "status": "success",
+                "message": "服务器已上线",
+                "server_online": True,
+                "timestamp": datetime.now().isoformat()
+            }), 200
+            
+        else:
+            return jsonify({"error": "无效的操作，支持的操作：online, offline"}), 400
+            
+    except Exception as e:
+        error_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        logger.error(f"[{error_time}] 来源IP: {client_ip} - 控制服务器状态时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"控制服务器状态时出错: {str(e)}"
+        }), 500
+
+@app.route('/api/server/status', methods=['GET'])
+def get_server_status():
+    """
+    获取服务器当前状态
+    """
+    return jsonify({
+        "server_online": server_online,
+        "server_offline_reason": server_offline_reason if not server_online else "",
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/api/nginx_logs', methods=['GET'])
+def get_nginx_logs():
+    """
+    获取 Nginx 访问日志（用于证明 HTTPS 传输）
+    """
+    request_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    client_ip = request.remote_addr
+    
+    logger.info(f"[{request_time}] 收到获取Nginx日志请求 - 来源IP: {client_ip}")
+    
+    lines = int(request.args.get('lines', 50))
+    
+    try:
+        # 尝试读取 Nginx 访问日志
+        nginx_log_paths = [
+            '/var/log/nginx/access.log',
+            '/var/log/nginx/error.log'
+        ]
+        
+        logs_data = []
+        
+        for log_path in nginx_log_paths:
+            if os.path.exists(log_path):
+                try:
+                    with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        all_lines = f.readlines()
+                        recent_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+                        
+                        for line in recent_lines:
+                            log_entry = {
+                                "source": os.path.basename(log_path),
+                                "content": line.strip(),
+                                "is_https": '443' in line or 'HTTPS' in line.upper()
+                            }
+                            logs_data.append(log_entry)
+                            
+                except Exception as e:
+                    logger.error(f"读取Nginx日志文件 {log_path} 时出错: {str(e)}")
+                    
+        response_data = {
+            "status": "success",
+            "total_lines": len(logs_data),
+            "logs": logs_data[-100:],  # 返回最近100条
+            "log_files": [path for path in nginx_log_paths if os.path.exists(path)],
+            "timestamp": datetime.now().isoformat(),
+            "message": "Nginx日志（包含HTTP和HTTPS请求记录）"
+        }
+        
+        logger.info(f"[{request_time}] 来源IP: {client_ip} - 成功获取 {len(logs_data)} 条Nginx日志")
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        logger.error(f"[{request_time}] 来源IP: {client_ip} - 获取Nginx日志时出错: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": f"获取Nginx日志时出错: {str(e)}"
         }), 500
 
 
