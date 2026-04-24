@@ -10,6 +10,10 @@ from datetime import datetime
 from collections import defaultdict
 import threading
 
+# 新增：导入 pymongo
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError, BulkWriteError
+
 # 从环境变量读取配置
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
 REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
@@ -22,6 +26,12 @@ FLUSH_INTERVAL = int(os.getenv('FLUSH_INTERVAL', 5))  # 批处理间隔秒数
 LOG_DIR = os.getenv('LOG_DIR', '.')
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 DEAD_LETTER_STREAM = os.getenv('DEAD_LETTER_STREAM', 'dead_letter_stream')
+
+# 新增：MongoDB 配置（支持环境变量）
+MONGO_HOST = os.getenv('MONGO_HOST', 'localhost')
+MONGO_PORT = int(os.getenv('MONGO_PORT', 27017))
+MONGO_DB_NAME = os.getenv('MONGO_DB_NAME', 'air_quality')
+MONGO_COLLECTION_NAME = os.getenv('MONGO_COLLECTION_NAME', 'records')
 
 # 配置日志
 numeric_level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
@@ -38,6 +48,8 @@ logger = logging.getLogger(__name__)
 class RedisStreamConsumer:
     def __init__(self):
         self.redis_client = None
+        self.mongo_client = None  # 新增：MongoDB 客户端
+        self.collection = None    # 新增：MongoDB 集合
         self.running = True
         self.batch_buffer = []
         self.last_flush_time = time.time()
@@ -71,6 +83,27 @@ class RedisStreamConsumer:
             logger.error(f"无法连接到 Redis 服务器: {str(e)}")
             return False
     
+    # 新增：连接 MongoDB
+    def connect_mongo(self):
+        """连接到 MongoDB 服务器"""
+        try:
+            self.mongo_client = MongoClient(
+                host=MONGO_HOST,
+                port=MONGO_PORT,
+                serverSelectionTimeoutMS=5000  # 5秒超时
+            )
+            # 测试连接
+            self.mongo_client.admin.command('ping')
+            
+            db = self.mongo_client[MONGO_DB_NAME]
+            self.collection = db[MONGO_COLLECTION_NAME]
+            
+            logger.info(f"成功连接到 MongoDB: {MONGO_HOST}:{MONGO_PORT}/{MONGO_DB_NAME}.{MONGO_COLLECTION_NAME}")
+            return True
+        except PyMongoError as e:
+            logger.error(f"无法连接到 MongoDB: {str(e)}")
+            return False
+    
     def validate_data(self, data):
         """
         验证数据是否包含必需字段
@@ -87,78 +120,68 @@ class RedisStreamConsumer:
                 return False
         return True
     
-    def parse_iso_date(self, iso_string):
-        """
-        从ISO格式的时间字符串中提取日期部分
-        
-        Args:
-            iso_string (str): ISO格式的时间字符串
-            
-        Returns:
-            str: 日期部分 (YYYY-MM-DD)
-        """
-        try:
-            # 尝试解析ISO时间戳
-            dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
-            return dt.strftime('%Y-%m-%d')
-        except ValueError:
-            # 如果解析失败，使用当前日期
-            logger.warning(f"无法解析时间戳 '{iso_string}', 使用当前日期")
-            return datetime.now().strftime('%Y-%m-%d')
+    # 移除：parse_iso_date 方法（不再需要按日期分组写入文件）
     
-    def write_batch_to_files(self, batch_data):
+    # 移除：write_batch_to_files 方法（替换为 insert_batch_to_mongo）
+    
+    # 新增：批量插入 MongoDB
+    def insert_batch_to_mongo(self, batch_data):
         """
-        将一批数据按日期分组写入对应的日志文件
+        将一批数据批量插入 MongoDB
         
         Args:
             batch_data (list): 包含多条数据记录的列表
         """
-        # 按日期分组数据
-        date_groups = defaultdict(list)
+        if not batch_data:
+            return
         
-        for item in batch_data:
-            # 尝试从时间戳中提取日期
-            timestamp_str = item.get('timestamp', '')
-            date_key = self.parse_iso_date(timestamp_str)
-            date_groups[date_key].append(item)
-        
-        # 将每组数据写入对应的文件
-        for date_key, items in date_groups.items():
-            filename = os.path.join(LOG_DIR, f"data_{date_key}.log")
+        try:
+            # 使用 insert_many 批量插入
+            result = self.collection.insert_many(batch_data, ordered=False)
+            logger.info(f"批量插入 {len(result.inserted_ids)} 条记录到 MongoDB")
             
-            try:
-                with open(filename, 'a', encoding='utf-8') as f:
-                    for item in items:
-                        # 将数据转换为紧凑的JSON字符串
-                        json_line = json.dumps(item, separators=(',', ':'))
-                        f.write(json_line + '\n')
-                
-                logger.info(f"批量写入 {len(items)} 条记录到文件 {filename}")
-                
-            except Exception as e:
-                logger.error(f"写入文件 {filename} 时出错: {str(e)}")
-                # 将失败的数据放入死信队列
-                for item in items:
-                    try:
-                        self.redis_client.xadd(DEAD_LETTER_STREAM, {
-                            'error': str(e),
-                            'original_data': json.dumps(item)
-                        })
-                    except Exception as dl_error:
-                        logger.error(f"写入死信队列也失败: {str(dl_error)}")
+        except BulkWriteError as bwe:
+            # 部分写入失败的情况
+            write_errors = bwe.details.get('writeErrors', [])
+            success_count = len(batch_data) - len(write_errors)
+            logger.warning(f"批量插入部分失败: 成功 {success_count} 条, 失败 {len(write_errors)} 条")
+            
+            # 将失败的数据放入死信队列
+            for error in write_errors:
+                failed_doc = batch_data[error['index']]
+                try:
+                    self.redis_client.xadd(DEAD_LETTER_STREAM, {
+                        'error': error.get('errmsg', 'bulk_write_error'),
+                        'original_data': json.dumps(failed_doc),
+                        'mongo_error_code': error.get('code', 'unknown')
+                    })
+                except Exception as dl_error:
+                    logger.error(f"写入死信队列失败: {str(dl_error)}")
+                    
+        except PyMongoError as e:
+            logger.error(f"批量插入 MongoDB 时出错: {str(e)}")
+            # 将整个批次放入死信队列
+            for item in batch_data:
+                try:
+                    self.redis_client.xadd(DEAD_LETTER_STREAM, {
+                        'error': str(e),
+                        'original_data': json.dumps(item)
+                    })
+                except Exception as dl_error:
+                    logger.error(f"写入死信队列也失败: {str(dl_error)}")
     
     def flush_batch(self):
-        """强制刷新当前批次的数据到文件"""
+        """强制刷新当前批次的数据到 MongoDB"""
         with self.lock:
             if self.batch_buffer:
                 logger.info(f"刷新批次，处理 {len(self.batch_buffer)} 条记录")
-                self.write_batch_to_files(self.batch_buffer)
+                self.insert_batch_to_mongo(self.batch_buffer)
                 self.batch_buffer = []
                 self.last_flush_time = time.time()
     
     def add_to_batch(self, data_item):
         """
-        将数据项添加到批次缓存中，如果达到批次大小或超过时间间隔则写入文件
+        将数据项添加到批次缓存中，如果达到批次大小或超过时间间隔则插入 MongoDB
         
         Args:
             data_item (dict): 要添加的数据项
@@ -170,7 +193,7 @@ class RedisStreamConsumer:
             if (len(self.batch_buffer) >= BATCH_SIZE or 
                 time.time() - self.last_flush_time >= FLUSH_INTERVAL):
                 logger.info(f"达到批次条件，处理 {len(self.batch_buffer)} 条记录")
-                self.write_batch_to_files(self.batch_buffer)
+                self.insert_batch_to_mongo(self.batch_buffer)
                 self.batch_buffer = []
                 self.last_flush_time = time.time()
     
@@ -222,6 +245,11 @@ class RedisStreamConsumer:
         
         if not self.connect_redis():
             logger.error("无法连接到Redis，程序退出")
+            return
+        
+        # 新增：连接 MongoDB
+        if not self.connect_mongo():
+            logger.error("无法连接到MongoDB，程序退出")
             return
         
         # 注册信号处理器以实现优雅退出
@@ -287,6 +315,11 @@ class RedisStreamConsumer:
         # 退出前刷新剩余的批次数据
         logger.info("正在退出，刷新剩余的批次数据...")
         self.flush_batch()
+        
+        # 新增：关闭 MongoDB 连接
+        if self.mongo_client:
+            self.mongo_client.close()
+            logger.info("MongoDB 连接已关闭")
         
         logger.info("Redis Stream 消费者程序已退出")
 
