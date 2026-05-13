@@ -10,6 +10,8 @@ from flask import Flask, request, jsonify, send_from_directory
 import tenacity
 from functools import wraps
 import hashlib
+import mysql.connector
+from flask_cors import CORS
 
 # 从环境变量读取配置
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
@@ -38,6 +40,7 @@ except Exception as e:
     redis_client = None
 
 app = Flask(__name__)
+CORS(app)
 
 # Flask 服务状态控制
 flask_online = True  # True=在线, False=下线
@@ -952,13 +955,13 @@ def toggle_flask_status():
     }), 200
 
 
-@app.route('/api/status', methods=['GET'])
+@app.route('/api/flask-status', methods=['GET'])
 def get_flask_status():
     """
     获取当前Flask服务状态
     """
     status_text = "在线" if flask_online else "下线"
-    
+
     return jsonify({
         "status": "success",
         "online": flask_online,
@@ -1059,6 +1062,710 @@ def monitor_page():
     except Exception as e:
         logger.error(f"返回监控页面时出错: {str(e)}")
         return "内部服务器错误", 500
+
+
+# ================================================================
+# MySQL 数据库连接
+# ================================================================
+
+def get_db():
+    """获取 MySQL 数据库连接（每次请求后关闭，避免连接泄漏）"""
+    return mysql.connector.connect(
+        host=os.getenv('MYSQL_HOST', 'localhost'),
+        user=os.getenv('MYSQL_USER', 'root'),
+        password=os.getenv('MYSQL_PASSWORD', ''),
+        database=os.getenv('MYSQL_DATABASE', 'air_quality_db')
+    )
+
+
+# ================================================================
+# 通用辅助函数
+# ================================================================
+
+def _json_success(data=None, msg='ok'):
+    """统一成功响应"""
+    return jsonify({'data': data, 'msg': msg}) if data is not None else jsonify({'msg': msg})
+
+
+def _json_error(msg, code=400):
+    """统一错误响应"""
+    return jsonify({'msg': msg}), code
+
+
+def _build_where(params, allowed):
+    """根据 query string 构建 WHERE 子句和参数列表"""
+    clauses = []
+    values = []
+    for key in allowed:
+        val = params.get(key)
+        if val is not None:
+            clauses.append(f'{key}=%s')
+            values.append(val)
+    return ' AND '.join(clauses), values
+
+
+def _build_set(body, allowed):
+    """根据请求 body 构建 SET 子句和参数列表（用于 UPDATE）"""
+    sets = []
+    values = []
+    for key in allowed:
+        if key in body:
+            sets.append(f'{key}=%s')
+            values.append(body[key])
+    return ', '.join(sets), values
+
+
+# ================================================================
+# 1. devices 监测点 CRUD
+# ================================================================
+
+@app.route('/api/devices', methods=['GET'])
+def list_devices():
+    """查询设备列表，支持 ?device_id=&status="""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        wheres, vals = _build_where(request.args, ['device_id', 'status'])
+        sql = 'SELECT * FROM devices'
+        if wheres:
+            sql += ' WHERE ' + wheres
+        sql += ' ORDER BY create_time DESC'
+        cursor.execute(sql, vals)
+        rows = cursor.fetchall()
+        return _json_success(rows)
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/devices/<int:record_id>', methods=['GET'])
+def get_device(record_id):
+    """查询单个设备"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM devices WHERE id=%s', (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return _json_error('设备不存在', 404)
+        return _json_success(row)
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/devices', methods=['POST'])
+def create_device():
+    """新增设备"""
+    body = request.json or {}
+    fields = ['device_id', 'location_name', 'longitude', 'latitude', 'api_key', 'status']
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals = [body.get(f) for f in fields]
+        sql = f"INSERT INTO devices ({', '.join(fields)}, create_time) VALUES (%s,%s,%s,%s,%s,%s, NOW())"
+        cursor.execute(sql, vals)
+        conn.commit()
+        return _json_success({'id': cursor.lastrowid}, '创建成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/devices/<int:record_id>', methods=['PUT'])
+def update_device(record_id):
+    """更新设备"""
+    body = request.json or {}
+    allowed = {'device_id', 'location_name', 'longitude', 'latitude', 'api_key', 'status'}
+    sets, vals = _build_set(body, allowed)
+    if not sets:
+        return _json_error('无有效字段更新')
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals.append(record_id)
+        sql = f'UPDATE devices SET {sets} WHERE id=%s'
+        cursor.execute(sql, vals)
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('设备不存在', 404)
+        return _json_success(msg='更新成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/devices/<int:record_id>', methods=['DELETE'])
+def delete_device(record_id):
+    """删除设备"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM devices WHERE id=%s', (record_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('设备不存在', 404)
+        return _json_success(msg='删除成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+# ================================================================
+# 2. daily_summary 每日统计 CRUD
+# ================================================================
+
+@app.route('/api/daily-summary', methods=['GET'])
+def list_daily_summary():
+    """查询日统计列表，支持 ?device_id=&start_date=&end_date="""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        clauses = []
+        vals = []
+        for key, col in [('device_id', 'device_id'), ('start_date', 'stat_date'),
+                          ('end_date', 'stat_date')]:
+            val = request.args.get(key)
+            if val is not None:
+                if key == 'end_date':
+                    clauses.append('stat_date <= %s')
+                elif key == 'start_date':
+                    clauses.append('stat_date >= %s')
+                else:
+                    clauses.append(f'{col}=%s')
+                vals.append(val)
+        sql = 'SELECT * FROM daily_summary'
+        if clauses:
+            sql += ' WHERE ' + ' AND '.join(clauses)
+        sql += ' ORDER BY stat_date DESC, device_id ASC'
+        cursor.execute(sql, vals)
+        return _json_success(cursor.fetchall())
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/daily-summary/<int:record_id>', methods=['GET'])
+def get_daily_summary(record_id):
+    """查询单条日统计"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM daily_summary WHERE id=%s', (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return _json_error('记录不存在', 404)
+        return _json_success(row)
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/daily-summary', methods=['POST'])
+def create_daily_summary():
+    """新增日统计"""
+    body = request.json or {}
+    fields = ['device_id', 'stat_date', 'avg_aqi', 'max_aqi', 'avg_pm2_5']
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals = [body.get(f) for f in fields]
+        sql = f"INSERT INTO daily_summary ({', '.join(fields)}, create_time) VALUES (%s,%s,%s,%s,%s, NOW())"
+        cursor.execute(sql, vals)
+        conn.commit()
+        return _json_success({'id': cursor.lastrowid}, '创建成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/daily-summary/<int:record_id>', methods=['PUT'])
+def update_daily_summary(record_id):
+    """更新日统计"""
+    body = request.json or {}
+    allowed = {'device_id', 'stat_date', 'avg_aqi', 'max_aqi', 'avg_pm2_5'}
+    sets, vals = _build_set(body, allowed)
+    if not sets:
+        return _json_error('无有效字段更新')
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals.append(record_id)
+        cursor.execute(f'UPDATE daily_summary SET {sets} WHERE id=%s', vals)
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='更新成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/daily-summary/<int:record_id>', methods=['DELETE'])
+def delete_daily_summary(record_id):
+    """删除日统计"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM daily_summary WHERE id=%s', (record_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='删除成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+# ================================================================
+# 3. air_quality_records 原始数据 CRUD
+# ================================================================
+
+@app.route('/api/air-quality-records', methods=['GET'])
+def list_air_quality_records():
+    """查询原始数据列表，支持 ?device_id=&start_time=&end_time="""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        clauses = []
+        vals = []
+        for key, col in [('device_id', 'device_id'), ('start_time', 'sample_time'),
+                          ('end_time', 'sample_time')]:
+            val = request.args.get(key)
+            if val is not None:
+                if key == 'end_time':
+                    clauses.append('sample_time <= %s')
+                elif key == 'start_time':
+                    clauses.append('sample_time >= %s')
+                else:
+                    clauses.append(f'{col}=%s')
+                vals.append(val)
+        sql = 'SELECT * FROM air_quality_records'
+        if clauses:
+            sql += ' WHERE ' + ' AND '.join(clauses)
+        sql += ' ORDER BY sample_time DESC LIMIT 500'
+        cursor.execute(sql, vals)
+        return _json_success(cursor.fetchall())
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/air-quality-records/<int:record_id>', methods=['GET'])
+def get_air_quality_record(record_id):
+    """查询单条原始数据"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM air_quality_records WHERE id=%s', (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return _json_error('记录不存在', 404)
+        return _json_success(row)
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/air-quality-records', methods=['POST'])
+def create_air_quality_record():
+    """新增原始数据"""
+    body = request.json or {}
+    fields = ['device_id', 'aqi', 'pm2_5', 'pm10', 'no2', 'so2', 'o3',
+              'temperature', 'humidity', 'sample_time']
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals = [body.get(f) for f in fields]
+        placeholders = ','.join(['%s'] * len(fields))
+        sql = f"INSERT INTO air_quality_records ({', '.join(fields)}, create_time) VALUES ({placeholders}, NOW())"
+        cursor.execute(sql, vals)
+        conn.commit()
+        return _json_success({'id': cursor.lastrowid}, '创建成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/air-quality-records/<int:record_id>', methods=['PUT'])
+def update_air_quality_record(record_id):
+    """更新原始数据"""
+    body = request.json or {}
+    allowed = {'device_id', 'aqi', 'pm2_5', 'pm10', 'no2', 'so2', 'o3',
+               'temperature', 'humidity', 'sample_time'}
+    sets, vals = _build_set(body, allowed)
+    if not sets:
+        return _json_error('无有效字段更新')
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals.append(record_id)
+        cursor.execute(f'UPDATE air_quality_records SET {sets} WHERE id=%s', vals)
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='更新成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/air-quality-records/<int:record_id>', methods=['DELETE'])
+def delete_air_quality_record(record_id):
+    """删除原始数据"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM air_quality_records WHERE id=%s', (record_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='删除成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+# ================================================================
+# 4. user_favorites 用户收藏 CRUD
+# ================================================================
+
+@app.route('/api/user-favorites', methods=['GET'])
+def list_user_favorites():
+    """查询收藏列表，支持 ?open_id=&device_id="""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        wheres, vals = _build_where(request.args, ['open_id', 'device_id'])
+        sql = 'SELECT * FROM user_favorites'
+        if wheres:
+            sql += ' WHERE ' + wheres
+        sql += ' ORDER BY create_time DESC'
+        cursor.execute(sql, vals)
+        return _json_success(cursor.fetchall())
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-favorites/<int:record_id>', methods=['GET'])
+def get_user_favorite(record_id):
+    """查询单条收藏"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM user_favorites WHERE id=%s', (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return _json_error('记录不存在', 404)
+        return _json_success(row)
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-favorites', methods=['POST'])
+def create_user_favorite():
+    """新增收藏"""
+    body = request.json or {}
+    fields = ['open_id', 'device_id']
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals = [body[f] for f in fields]
+        sql = f"INSERT INTO user_favorites ({', '.join(fields)}, create_time) VALUES (%s,%s, NOW())"
+        cursor.execute(sql, vals)
+        conn.commit()
+        return _json_success({'id': cursor.lastrowid}, '收藏成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-favorites/<int:record_id>', methods=['PUT'])
+def update_user_favorite(record_id):
+    """更新收藏"""
+    body = request.json or {}
+    allowed = {'open_id', 'device_id'}
+    sets, vals = _build_set(body, allowed)
+    if not sets:
+        return _json_error('无有效字段更新')
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals.append(record_id)
+        cursor.execute(f'UPDATE user_favorites SET {sets} WHERE id=%s', vals)
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='更新成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-favorites/<int:record_id>', methods=['DELETE'])
+def delete_user_favorite(record_id):
+    """删除收藏"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM user_favorites WHERE id=%s', (record_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='删除成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+# ================================================================
+# 5. user_alerts 用户告警阈值 CRUD
+# ================================================================
+
+@app.route('/api/user-alerts', methods=['GET'])
+def list_user_alerts():
+    """查询告警列表，支持 ?open_id=&device_id=&is_enabled="""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        wheres, vals = _build_where(request.args, ['open_id', 'device_id', 'is_enabled'])
+        sql = 'SELECT * FROM user_alerts'
+        if wheres:
+            sql += ' WHERE ' + wheres
+        sql += ' ORDER BY id DESC'
+        cursor.execute(sql, vals)
+        return _json_success(cursor.fetchall())
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-alerts/<int:record_id>', methods=['GET'])
+def get_user_alert(record_id):
+    """查询单条告警"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM user_alerts WHERE id=%s', (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return _json_error('记录不存在', 404)
+        return _json_success(row)
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-alerts', methods=['POST'])
+def create_user_alert():
+    """新增告警阈值"""
+    body = request.json or {}
+    fields = ['open_id', 'device_id', 'pm2_5_max', 'aqi_max', 'is_enabled']
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals = [body.get(f) for f in fields]
+        sql = f"INSERT INTO user_alerts ({', '.join(fields)}) VALUES (%s,%s,%s,%s,%s)"
+        cursor.execute(sql, vals)
+        conn.commit()
+        return _json_success({'id': cursor.lastrowid}, '创建成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-alerts/<int:record_id>', methods=['PUT'])
+def update_user_alert(record_id):
+    """更新告警阈值"""
+    body = request.json or {}
+    allowed = {'open_id', 'device_id', 'pm2_5_max', 'aqi_max', 'is_enabled'}
+    sets, vals = _build_set(body, allowed)
+    if not sets:
+        return _json_error('无有效字段更新')
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals.append(record_id)
+        cursor.execute(f'UPDATE user_alerts SET {sets} WHERE id=%s', vals)
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='更新成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/user-alerts/<int:record_id>', methods=['DELETE'])
+def delete_user_alert(record_id):
+    """删除告警阈值"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM user_alerts WHERE id=%s', (record_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('记录不存在', 404)
+        return _json_success(msg='删除成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+# ================================================================
+# 6. users 用户信息 CRUD
+# ================================================================
+
+@app.route('/api/users', methods=['GET'])
+def list_users():
+    """查询用户列表，支持 ?open_id="""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        wheres, vals = _build_where(request.args, ['open_id'])
+        sql = 'SELECT * FROM users'
+        if wheres:
+            sql += ' WHERE ' + wheres
+        sql += ' ORDER BY create_time DESC'
+        cursor.execute(sql, vals)
+        return _json_success(cursor.fetchall())
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/users/<int:record_id>', methods=['GET'])
+def get_user(record_id):
+    """查询单个用户"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute('SELECT * FROM users WHERE id=%s', (record_id,))
+        row = cursor.fetchone()
+        if not row:
+            return _json_error('用户不存在', 404)
+        return _json_success(row)
+    except mysql.connector.Error as e:
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/users', methods=['POST'])
+def create_user():
+    """新增用户"""
+    body = request.json or {}
+    fields = ['open_id', 'nickname', 'avatar_url']
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        vals = [body.get(f) for f in fields]
+        sql = f"INSERT INTO users ({', '.join(fields)}, create_time, update_time) VALUES (%s,%s,%s, NOW(), NOW())"
+        cursor.execute(sql, vals)
+        conn.commit()
+        return _json_success({'id': cursor.lastrowid}, '创建成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/users/<int:record_id>', methods=['PUT'])
+def update_user(record_id):
+    """更新用户信息"""
+    body = request.json or {}
+    allowed = {'open_id', 'nickname', 'avatar_url'}
+    sets, vals = _build_set(body, allowed)
+    if not sets:
+        return _json_error('无有效字段更新')
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        sets += ', update_time=NOW()'  # 自动刷新更新时间
+        vals.append(record_id)
+        cursor.execute(f'UPDATE users SET {sets} WHERE id=%s', vals)
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('用户不存在', 404)
+        return _json_success(msg='更新成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+@app.route('/api/users/<int:record_id>', methods=['DELETE'])
+def delete_user(record_id):
+    """删除用户"""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM users WHERE id=%s', (record_id,))
+        conn.commit()
+        if cursor.rowcount == 0:
+            return _json_error('用户不存在', 404)
+        return _json_success(msg='删除成功')
+    except mysql.connector.Error as e:
+        conn.rollback()
+        return _json_error(str(e), 500)
+    finally:
+        conn.close()
+
+
+# ================================================================
+# 注册小程序后端蓝图
+# ================================================================
+try:
+    from miniprogram_api import miniprogram
+    app.register_blueprint(miniprogram)
+    logger.info("小程序后端蓝图已注册")
+except Exception as e:
+    logger.warning(f"小程序后端蓝图注册失败（可忽略）: {e}")
 
 
 if __name__ == '__main__':
