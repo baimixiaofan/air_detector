@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
-import mysql.connector
+import pymysql
 
 from config import (
     MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE,
@@ -34,9 +34,10 @@ def _get_mongo():
 
 
 def _get_mysql():
-    return mysql.connector.connect(
+    return pymysql.connect(
         host=MYSQL_HOST, port=MYSQL_PORT, user=MYSQL_USER,
-        password=MYSQL_PASSWORD, database=MYSQL_DATABASE
+        password=MYSQL_PASSWORD, database=MYSQL_DATABASE,
+        charset='utf8mb4', cursorclass=pymysql.cursors.DictCursor
     )
 
 
@@ -129,14 +130,14 @@ def daily_summary():
     conn = None
     try:
         conn = _get_mysql()
-        cur = conn.cursor(dictionary=True)
+        cur = conn.cursor()
         cur.execute(
             'SELECT device_id, stat_date, avg_aqi, max_aqi, avg_pm2_5 '
             'FROM daily_summary WHERE stat_date = %s',
             (date,)
         )
         return _ok(cur.fetchall())
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         logger.error(f"MySQL 查询失败: {e}")
         return _err('数据库查询失败', 500)
     finally:
@@ -156,7 +157,7 @@ def login():
     conn = None
     try:
         conn = _get_mysql()
-        cur = conn.cursor(dictionary=True)
+        cur = conn.cursor()
         cur.execute('SELECT * FROM users WHERE open_id = %s', (code,))
         user = cur.fetchone()
 
@@ -174,7 +175,7 @@ def login():
             'nickname': user.get('nickname'),
             'avatar_url': user.get('avatar_url')
         })
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         if conn:
             conn.rollback()
         logger.error(f"登录失败: {e}")
@@ -204,7 +205,7 @@ def bind_device():
             cur.execute('INSERT INTO user_devices (open_id, device_id) VALUES (%s, %s)', (open_id, device_id))
         conn.commit()
         return _ok(message='绑定成功')
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         if conn:
             conn.rollback()
         logger.error(f"绑定失败: {e}")
@@ -231,7 +232,7 @@ def unbind_device():
         cur.execute('DELETE FROM user_devices WHERE open_id=%s AND device_id=%s', (open_id, device_id))
         conn.commit()
         return _ok(message='解绑成功')
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         if conn:
             conn.rollback()
         logger.error(f"解绑失败: {e}")
@@ -252,7 +253,7 @@ def list_devices():
     conn = mongo_client = None
     try:
         conn = _get_mysql()
-        cur = conn.cursor(dictionary=True)
+        cur = conn.cursor()
 
         cur.execute('SELECT device_id, bind_time FROM user_devices WHERE open_id=%s', (open_id,))
         bound = cur.fetchall()
@@ -302,11 +303,11 @@ def list_devices():
                 'last_longitude': info.get('longitude'),
                 'last_latitude':  info.get('latitude'),
                 'last_update': lat.get('latest_time', ''),
-                'bind_time': b.get('bind_time').strftime('%Y-%m-%d %H:%M:%S') if b.get('bind_time') else ''
+                'bind_time': b['bind_time'].strftime('%Y-%m-%d %H:%M:%S') if b.get('bind_time') else ''
             })
 
         return _ok(result)
-    except (PyMongoError, mysql.connector.Error) as e:
+    except (PyMongoError, pymysql.Error) as e:
         logger.error(f"查询设备列表失败: {e}")
         return _err('查询失败', 500)
     finally:
@@ -341,7 +342,7 @@ def update_location():
                         (device_id, longitude, latitude))
         conn.commit()
         return _ok(message='位置更新成功')
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         if conn:
             conn.rollback()
         logger.error(f"位置更新失败: {e}")
@@ -370,7 +371,7 @@ def add_favorite():
             cur.execute('INSERT INTO user_favorites (open_id, device_id) VALUES (%s,%s)', (open_id, device_id))
         conn.commit()
         return _ok(message='收藏成功')
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         if conn:
             conn.rollback()
         logger.error(f"收藏失败: {e}")
@@ -397,7 +398,7 @@ def remove_favorite():
         cur.execute('DELETE FROM user_favorites WHERE open_id=%s AND device_id=%s', (open_id, device_id))
         conn.commit()
         return _ok(message='取消收藏成功')
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         if conn:
             conn.rollback()
         logger.error(f"取消收藏失败: {e}")
@@ -418,7 +419,7 @@ def list_favorites():
     conn = None
     try:
         conn = _get_mysql()
-        cur = conn.cursor(dictionary=True)
+        cur = conn.cursor()
         cur.execute(
             'SELECT f.device_id, d.location_name, f.create_time AS add_time '
             'FROM user_favorites f LEFT JOIN devices d ON f.device_id = d.device_id '
@@ -430,7 +431,7 @@ def list_favorites():
             if row.get('add_time'):
                 row['add_time'] = row['add_time'].strftime('%Y-%m-%d %H:%M:%S')
         return _ok(rows)
-    except mysql.connector.Error as e:
+    except pymysql.Error as e:
         logger.error(f"查询收藏失败: {e}")
         return _err('查询失败', 500)
     finally:
