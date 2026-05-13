@@ -61,13 +61,15 @@ flask_online = True  # True=在线, False=下线
 
 # 配置日志
 numeric_level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
+try:
+    _log_file = os.getenv('LOG_DIR', '.') + '/server.log'
+    _log_handlers = [logging.FileHandler(_log_file), logging.StreamHandler()]
+except (OSError, PermissionError):
+    _log_handlers = [logging.StreamHandler()]
 logging.basicConfig(
     level=numeric_level,
     format='%(asctime)s %(levelname)s: %(message)s',
-    handlers=[
-        logging.FileHandler('server.log'),
-        logging.StreamHandler()  # 同时输出到控制台
-    ]
+    handlers=_log_handlers
 )
 logger = logging.getLogger(__name__)
 
