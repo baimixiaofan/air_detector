@@ -10,8 +10,22 @@ from flask import Flask, request, jsonify, send_from_directory
 import tenacity
 from functools import wraps
 import hashlib
-import mysql.connector
+import pymysql.cursors
 from flask_cors import CORS
+
+# 兼容层：pymysql 替代 mysql.connector
+import types as _types
+_mysql_mod = _types.ModuleType('mysql')
+_mysql_mod.connector = pymysql
+_mysql_mod.connector.Error = pymysql.Error
+import sys as _sys
+_sys.modules['mysql'] = _mysql_mod
+_sys.modules['mysql.connector'] = pymysql
+
+_orig_mysql_cursor = pymysql.Connection.cursor
+def _compat_cursor(self, dictionary=None, **kwargs):
+    return _orig_mysql_cursor(self)
+pymysql.Connection.cursor = _compat_cursor
 
 # 从环境变量读取配置
 REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
@@ -1070,11 +1084,13 @@ def monitor_page():
 
 def get_db():
     """获取 MySQL 数据库连接（每次请求后关闭，避免连接泄漏）"""
-    return mysql.connector.connect(
+    return pymysql.connect(
         host=os.getenv('MYSQL_HOST', 'localhost'),
         user=os.getenv('MYSQL_USER', 'root'),
         password=os.getenv('MYSQL_PASSWORD', ''),
-        database=os.getenv('MYSQL_DATABASE', 'air_quality_db')
+        database=os.getenv('MYSQL_DATABASE', 'air_quality_db'),
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
     )
 
 
