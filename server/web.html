@@ -1030,12 +1030,12 @@
 
         async function fetchFlaskStatus() {
             try {
-                const response = await fetch(`${API_BASE_URL}/api/status`);
-                
+                const response = await fetch(`${API_BASE_URL}/api/flask-status`);
+
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                
+
                 const data = await response.json();
-                
+
                 if (data.status === 'success') {
                     updateFlaskStatusDisplay(data.online);
                 }
