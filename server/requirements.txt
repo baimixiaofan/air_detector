@@ -4,3 +4,4 @@ tenacity
 pymysql
 apscheduler
 pymongo
+flask-cors
