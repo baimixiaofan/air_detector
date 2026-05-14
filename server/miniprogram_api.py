@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Blueprint, request, jsonify, send_from_directory
+import requests as _requests
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 import pymysql
@@ -634,6 +635,12 @@ def daily_summary():
 
 
 # ====================================================================
+# 微信配置（替换成你自己的）
+# ====================================================================
+WECHAT_APPID = "wxbfec87a473baa901"
+WECHAT_SECRET = "96e215f309138ca69c602e2b0134a62d"
+
+# ====================================================================
 # 21. 微信登录 /api/login
 # ====================================================================
 
@@ -644,17 +651,40 @@ def login():
     if not code:
         return _err('缺少 code 参数')
 
+    # 调微信接口换 open_id
+    try:
+        resp = _requests.get(
+            'https://api.weixin.qq.com/sns/jscode2session',
+            params={
+                'appid': WECHAT_APPID,
+                'secret': WECHAT_SECRET,
+                'js_code': code,
+                'grant_type': 'authorization_code'
+            },
+            timeout=10
+        )
+        wx_data = resp.json()
+    except Exception as e:
+        logger.error(f"调用微信接口失败: {e}")
+        return _err('微信登录失败', 500)
+
+    if 'openid' not in wx_data:
+        logger.error(f"微信返回异常: {wx_data}")
+        return _err('微信登录失败: ' + wx_data.get('errmsg', '未知错误'), 401)
+
+    open_id = wx_data['openid']
+
     conn = None
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute('SELECT * FROM users WHERE open_id = %s', (code,))
+        cur.execute('SELECT * FROM users WHERE open_id = %s', (open_id,))
         user = cur.fetchone()
         if not user:
             cur.execute('INSERT INTO users (open_id, nickname, avatar_url, create_time, update_time) '
-                        'VALUES (%s, %s, %s, NOW(), NOW())', (code, None, None))
+                        'VALUES (%s, %s, %s, NOW(), NOW())', (open_id, None, None))
             conn.commit()
-            user = {'open_id': code, 'nickname': None, 'avatar_url': None}
+            user = {'open_id': open_id, 'nickname': None, 'avatar_url': None}
         return _ok({'open_id': user['open_id'], 'nickname': user.get('nickname'), 'avatar_url': user.get('avatar_url')})
     except pymysql.Error as e:
         if conn:
