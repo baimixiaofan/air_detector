@@ -626,15 +626,69 @@ def get_history():
 
 @miniprogram.route('/api/daily_summary', methods=['GET'])
 def daily_summary():
-    date = request.args.get('date') or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    device_id = request.args.get('device_id')
+    hours = request.args.get('hours')
+    date = request.args.get('date')
+
+    # 如果传了 hours 参数，从 MongoDB 实时聚合
+    if hours and device_id:
+        try:
+            hours = int(hours)
+        except ValueError:
+            hours = None
+
+    if hours and device_id:
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            mongo_client, col = _get_mongo()
+            pipeline = [
+                {'$match': {
+                    '$or': [{'device_id': device_id}, {'client_ip': device_id}],
+                    'timestamp': {'$gte': cutoff}
+                }},
+                {'$group': {
+                    '_id': None,
+                    'avg_aqi': {'$avg': '$data.AQI'},
+                    'max_aqi': {'$max': '$data.AQI'},
+                    'avg_pm2_5': {'$avg': '$data.PM₂.₅'}
+                }}
+            ]
+            stats = list(col.aggregate(pipeline))
+            mongo_client.close()
+
+            if stats:
+                row = stats[0]
+                data = [{
+                    'device_id': device_id,
+                    'stat_date': f'过去{hours}小时',
+                    'avg_aqi': round(row.get('avg_aqi') or 0, 1),
+                    'max_aqi': round(row.get('max_aqi') or 0, 1),
+                    'avg_pm2_5': round(row.get('avg_pm2_5') or 0, 1)
+                }]
+            else:
+                data = []
+            return _ok(data)
+        except PyMongoError as e:
+            logger.error(f"MongoDB 聚合失败: {e}")
+            return _err('查询失败', 500)
+
+    # 原逻辑：从 MySQL daily_summary 查
+    date = date or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
     conn = None
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute(
-            'SELECT device_id, stat_date, avg_aqi, max_aqi, avg_pm2_5 '
-            'FROM daily_summary WHERE stat_date = %s', (date,)
-        )
+        if device_id:
+            cur.execute(
+                'SELECT device_id, stat_date, avg_aqi, max_aqi, avg_pm2_5 '
+                'FROM daily_summary WHERE stat_date = %s AND device_id = %s',
+                (date, device_id)
+            )
+        else:
+            cur.execute(
+                'SELECT device_id, stat_date, avg_aqi, max_aqi, avg_pm2_5 '
+                'FROM daily_summary WHERE stat_date = %s', (date,)
+            )
         rows = cur.fetchall()
         for row in rows:
             if row.get('stat_date'):
