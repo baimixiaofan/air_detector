@@ -151,46 +151,53 @@ class AirQualitySimulator:
             self.stop()
     
     def generate_data(self):
-        """数据生成线程（随机游走 + 随机警报事件）"""
+        """数据生成线程（均值回归随机游走 + 随机警报事件）"""
         while self.running:
             try:
-                # ---- 随机触发警报事件 ----
-                if not self.alert_event_active and np.random.random() < 0.02:
-                    # 2%概率触发警报，持续 5~15 步
-                    self.alert_event_active = True
-                    self.alert_countdown = np.random.randint(5, 15)
-                    self.alert_direction = 1
-                    print(f"⚠️ 触发空气质量警报事件！持续 {self.alert_countdown} 步")
+                # ---- 均值回归（Ornstein-Uhlenbeck） ----
+                # 每步将值向均值拉回 3%，防止自由漂移
+                revert_strength = 0.03
+                for i in range(len(self.cols)):
+                    self.current_values[i] += (
+                        self.mean_vec.values[i] - self.current_values[i]
+                    ) * revert_strength
 
-                # ---- 基础随机游走 ----
+                # ---- 基础随机游走（小步扰动） ----
                 delta = np.random.multivariate_normal(
                     np.zeros(len(self.cols)),
-                    self.cov_mat.values * 0.03
+                    self.cov_mat.values * 0.02
                 )
                 self.current_values += delta
 
-                # ---- 警报事件：AQI 大幅上升 ----
+                # ---- 随机触发警报事件 ----
+                if not self.alert_event_active and np.random.random() < 0.015:
+                    # 1.5%概率触发（约每5分钟一次），持续 5~10 步
+                    self.alert_event_active = True
+                    self.alert_countdown = np.random.randint(5, 10)
+                    self.alert_direction = 1
+                    print(f"⚠️ 触发空气质量警报事件！持续 {self.alert_countdown} 步")
+
+                # ---- 警报事件 ----
                 if self.alert_event_active:
-                    # 前一半步数上升，后一半回落
                     if self.alert_direction == 1:
-                        # 每步 AQI +15~30，其他污染物也同步上升
+                        # 上升阶段：AQI 温和上升 5~12
                         spike = np.array([
-                            np.random.uniform(15, 30),   # AQI
-                            np.random.uniform(8, 15),    # PM2.5
-                            np.random.uniform(5, 10),    # NO2
-                            np.random.uniform(2, 5),     # SO2
-                            np.random.uniform(3, 8)      # O3
+                            np.random.uniform(5, 12),    # AQI
+                            np.random.uniform(4, 8),     # PM2.5
+                            np.random.uniform(3, 6),     # NO2
+                            np.random.uniform(1, 3),     # SO2
+                            np.random.uniform(2, 5)      # O3
                         ])
                         self.current_values += spike
                         half = self.alert_countdown // 2
                         if self.alert_countdown <= half:
                             self.alert_direction = -1
                     else:
-                        # 回落阶段：每步回归接近正常
-                        for i, col in enumerate(self.cols):
+                        # 回落阶段：快速拉回均值附近
+                        for i in range(len(self.cols)):
                             target = self.mean_vec.values[i]
-                            self.current_values[i] += (target - self.current_values[i]) * 0.15
-                            self.current_values[i] += np.random.normal(0, 1)
+                            self.current_values[i] += (target - self.current_values[i]) * 0.3
+                            self.current_values[i] += np.random.normal(0, 0.5)
 
                     self.alert_countdown -= 1
                     if self.alert_countdown <= 0:
@@ -199,11 +206,11 @@ class AirQualitySimulator:
 
                 # ---- 限制在合理范围 ----
                 bounds = {
-                    'AQI':    (10, 350),
-                    'PM₂.₅':  (5, 200),
-                    'NO₂':    (5, 100),
-                    'SO₂':    (2, 50),
-                    'O₃':     (5, 120)
+                    'AQI':    (10, 250),
+                    'PM₂.₅':  (3, 150),
+                    'NO₂':    (3, 80),
+                    'SO₂':    (1, 40),
+                    'O₃':     (3, 100)
                 }
                 for i, col in enumerate(self.cols):
                     lo, hi = bounds.get(col, (0, 999))
