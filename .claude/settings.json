@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"D:\\\\flash_app\\\\---\")",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}
