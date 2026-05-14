@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(dir \"D:\\\\flash_app\\\\---\")",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Read(//c/Users/baimixiaofan/Pictures/Screenshots/**)"
     ]
   }
 }
