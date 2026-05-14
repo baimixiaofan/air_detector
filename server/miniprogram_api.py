@@ -641,24 +641,38 @@ WECHAT_APPID = "wxbfec87a473baa901"
 WECHAT_SECRET = "96e215f309138ca69c602e2b0134a62d"
 
 # ====================================================================
-# 0. 可用设备列表 /api/devices/available
+# 0. 创建设备 /api/device/create
 # ====================================================================
-_DEVICE_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'device_config.json')
+def _gen_device_id():
+    """生成唯一的 6 位设备 ID（字母+数字）"""
+    import hashlib as _hashlib
+    import time as _time
+    raw = f"{_time.time()}{os.urandom(4).hex()}"
+    code = _hashlib.md5(raw.encode()).hexdigest()[:6].upper()
+    return code
 
 
-def _load_device_config():
+@miniprogram.route('/api/device/create', methods=['POST'])
+def create_device():
+    """创建一个新设备，返回设备 ID。用户输入此 ID 绑定即可"""
+    device_id = _gen_device_id()
+
+    conn = None
     try:
-        with open(_DEVICE_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f).get('devices', [])
-    except Exception as e:
-        logger.error(f"读取设备配置文件失败: {e}")
-        return []
-
-
-@miniprogram.route('/api/devices/available', methods=['GET'])
-def list_available_devices():
-    devices = _load_device_config()
-    return _ok(devices)
+        conn = _get_mysql()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO devices (device_id, status, create_time) VALUES (%s, 'offline', NOW())", (device_id,))
+        conn.commit()
+        logger.info(f"[设备] 创建新设备: {device_id}")
+        return _ok({'device_id': device_id, 'message': '设备创建成功，请输入此 ID 绑定'})
+    except pymysql.Error as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"[设备] 创建设备失败: {e}")
+        return _err('创建设备失败', 500)
+    finally:
+        if conn:
+            conn.close()
 
 
 # ====================================================================
