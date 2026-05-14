@@ -648,11 +648,15 @@ WECHAT_SECRET = "96e215f309138ca69c602e2b0134a62d"
 def login():
     body = request.json or {}
     code = body.get('code', '')
+    client_ip = request.remote_addr
+    logger.info(f"[登录] 收到登录请求 - IP: {client_ip}")
     if not code:
+        logger.warning(f"[登录] 缺少 code 参数 - IP: {client_ip}")
         return _err('缺少 code 参数')
 
     # 调微信接口换 open_id
     try:
+        logger.info(f"[登录] 请求微信接口, code前8位: {code[:8]}...")
         resp = _requests.get(
             'https://api.weixin.qq.com/sns/jscode2session',
             params={
@@ -664,15 +668,17 @@ def login():
             timeout=10
         )
         wx_data = resp.json()
+        logger.info(f"[登录] 微信返回: {wx_data}")
     except Exception as e:
-        logger.error(f"调用微信接口失败: {e}")
+        logger.error(f"[登录] 调用微信接口失败: {e}")
         return _err('微信登录失败', 500)
 
     if 'openid' not in wx_data:
-        logger.error(f"微信返回异常: {wx_data}")
+        logger.error(f"[登录] 微信返回异常: {wx_data}")
         return _err('微信登录失败: ' + wx_data.get('errmsg', '未知错误'), 401)
 
     open_id = wx_data['openid']
+    logger.info(f"[登录] 获取到 open_id: {open_id}")
 
     conn = None
     try:
@@ -685,11 +691,14 @@ def login():
                         'VALUES (%s, %s, %s, NOW(), NOW())', (open_id, None, None))
             conn.commit()
             user = {'open_id': open_id, 'nickname': None, 'avatar_url': None}
+            logger.info(f"[登录] 新用户注册: {open_id}")
+        else:
+            logger.info(f"[登录] 老用户登录: {open_id}")
         return _ok({'open_id': user['open_id'], 'nickname': user.get('nickname'), 'avatar_url': user.get('avatar_url')})
     except pymysql.Error as e:
         if conn:
             conn.rollback()
-        logger.error(f"登录失败: {e}")
+        logger.error(f"[登录] 数据库操作失败: {e}")
         return _err('登录失败', 500)
     finally:
         if conn:
