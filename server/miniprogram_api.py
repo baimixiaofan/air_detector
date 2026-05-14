@@ -750,6 +750,8 @@ def bind_device():
     if not open_id or not device_id:
         return _err('缺少 open_id 或 device_id 参数')
 
+    room_location = body.get('room_location', 'living_room')
+
     # 校验设备 ID 是否在配置文件中
     valid_ids = _get_valid_device_ids()
     if device_id not in valid_ids:
@@ -760,8 +762,10 @@ def bind_device():
         conn = _get_mysql()
         cur = conn.cursor()
         cur.execute('SELECT id FROM user_devices WHERE open_id=%s AND device_id=%s', (open_id, device_id))
-        if not cur.fetchone():
-            cur.execute('INSERT INTO user_devices (open_id, device_id) VALUES (%s, %s)', (open_id, device_id))
+        if cur.fetchone():
+            cur.execute('UPDATE user_devices SET room_location=%s WHERE open_id=%s AND device_id=%s', (room_location, open_id, device_id))
+        else:
+            cur.execute('INSERT INTO user_devices (open_id, device_id, room_location) VALUES (%s, %s, %s)', (open_id, device_id, room_location))
         conn.commit()
         return _ok(message='绑定成功')
     except pymysql.Error as e:
@@ -801,7 +805,7 @@ def list_devices():
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute('SELECT device_id, bind_time FROM user_devices WHERE open_id=%s', (open_id,))
+        cur.execute('SELECT device_id, bind_time, room_location FROM user_devices WHERE open_id=%s', (open_id,))
         bound = cur.fetchall()
         if not bound:
             return _ok([])
@@ -836,6 +840,7 @@ def list_devices():
             result.append({
                 'device_id': did, 'location_name': info.get('location_name', ''),
                 'status': 'online' if is_online else 'offline',
+                'room_location': b.get('room_location', 'living_room'),
                 'last_longitude': info.get('longitude'), 'last_latitude': info.get('latitude'),
                 'last_update': lat.get('latest_time', ''),
                 'bind_time': b['bind_time'].strftime('%Y-%m-%d %H:%M:%S') if b.get('bind_time') else ''
