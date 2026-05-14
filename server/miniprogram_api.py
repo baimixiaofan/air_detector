@@ -813,13 +813,33 @@ def ai_analyze():
     avg_pm25 = sum(r['PM2.5'] for r in records) / len(records)
     latest = records[-1]
 
+    # 查询设备位置
+    device_location = ''
+    try:
+        conn = _get_mysql()
+        cur = conn.cursor()
+        cur.execute('SELECT room_location FROM user_devices WHERE device_id=%s LIMIT 1', (device_id,))
+        row = cur.fetchone()
+        if row and row['room_location']:
+            loc_map = {
+                'living_room': '客厅', 'bedroom': '卧室', 'kitchen': '厨房',
+                'study': '书房', 'balcony': '阳台', 'dining_room': '餐厅',
+                'bathroom': '卫生间', 'hall': '大厅'
+            }
+            device_location = loc_map.get(row['room_location'], row['room_location'])
+        conn.close()
+    except Exception:
+        pass
+
     # 构建 prompt
     data_str = '\n'.join([
         f"{r['time']}  AQI={r['AQI']}  PM2.5={r['PM2.5']}  NO₂={r['NO₂']}  SO₂={r['SO₂']}  O₃={r['O₃']}"
         for r in records
     ])
 
-    prompt = f"""你是一个家庭室内空气质量监测助手。以下是装在室内的空气质量检测仪过去{hours}小时的数据（每5分钟一条），设备放在普通居民住宅内：
+    location_desc = f"（{device_location}）" if device_location else ""
+
+    prompt = f"""你是一个家庭室内空气质量监测助手。以下是装在室内{location_desc}的空气质量检测仪过去{hours}小时的数据（每5分钟一条），设备放在普通居民住宅内：
 
 {data_str}
 
