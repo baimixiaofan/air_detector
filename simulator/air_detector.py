@@ -76,7 +76,10 @@ class AirQualitySimulator:
             # 使用内置的标准空气质量参数
             self.mean_vec = pd.Series([55.0, 25.0, 35.0, 12.0, 45.0], index=self.cols)
             self.cov_mat = pd.DataFrame(np.eye(5) * 5, index=self.cols, columns=self.cols)
-        
+
+        # 初始值设为均值附近（随机游走起点）
+        self.current_values = self.mean_vec.values + np.random.normal(0, 3, size=len(self.cols))
+
         # 数据存储
         self.simulated_data = []
         self.timestamps = []
@@ -143,16 +146,30 @@ class AirQualitySimulator:
             self.stop()
     
     def generate_data(self):
-        """数据生成线程"""
+        """数据生成线程（随机游走，数据平滑但有波动）"""
         while self.running:
             try:
-                # 生成单个数据点
-                data_point = np.random.multivariate_normal(self.mean_vec.values, self.cov_mat.values, size=1)[0]
-                
-                # 处理非负约束
+                # 随机游走：每步加一个小的相关变化
+                # 协方差矩阵 × 0.03 让变化幅度较小
+                delta = np.random.multivariate_normal(
+                    np.zeros(len(self.cols)),
+                    self.cov_mat.values * 0.03
+                )
+                self.current_values += delta
+
+                # 限制在合理范围内，模拟真实空气质量区间
+                bounds = {
+                    'AQI':    (10, 180),
+                    'PM₂.₅':  (5, 90),
+                    'NO₂':    (5, 70),
+                    'SO₂':    (2, 35),
+                    'O₃':     (5, 90)
+                }
                 for i, col in enumerate(self.cols):
-                    if col in ['PM₂.₅', 'NO₂', 'SO₂', 'O₃', 'AQI']:
-                        data_point[i] = max(0, data_point[i])
+                    lo, hi = bounds.get(col, (0, 999))
+                    self.current_values[i] = np.clip(self.current_values[i], lo, hi)
+
+                data_point = self.current_values.copy()
                 
                 # 添加时间戳
                 timestamp = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
