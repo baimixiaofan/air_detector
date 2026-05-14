@@ -747,6 +747,117 @@ def _get_valid_device_ids():
 
 
 # ====================================================================
+# AI 空气质量分析 /api/ai/analyze
+# ====================================================================
+
+_DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
+_DEEPSEEK_MODEL = 'deepseek-chat'
+
+
+@miniprogram.route('/api/ai/analyze', methods=['POST'])
+def ai_analyze():
+    body = request.json or {}
+    device_id = body.get('device_id')
+    hours = int(body.get('hours', 24))
+
+    if not device_id:
+        return _err('缺少 device_id 参数')
+    if not _DEEPSEEK_API_KEY:
+        return _err('未配置 DeepSeek API Key', 500)
+
+    try:
+        hours = int(hours)
+    except ValueError:
+        hours = 24
+
+    # 从 MongoDB 取数据
+    mongo_client = None
+    try:
+        cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+        mongo_client, col = _get_mongo()
+        docs = col.find(
+            {'$or': [{'device_id': device_id}, {'client_ip': device_id}], 'timestamp': {'$gte': cutoff}},
+            sort=[('timestamp', 1)],
+            limit=100
+        )
+
+        records = []
+        for doc in docs:
+            d = doc.get('data', {})
+            records.append({
+                'time': doc.get('timestamp', '')[-8:5],
+                'AQI': round(float(d.get('AQI', 0)), 1),
+                'PM2.5': round(float(d.get('PM₂.₅', 0)), 1),
+                'NO₂': round(float(d.get('NO₂', 0)), 1),
+                'SO₂': round(float(d.get('SO₂', 0)), 1),
+                'O₃': round(float(d.get('O₃', 0)), 1)
+            })
+    except Exception as e:
+        logger.error(f"AI分析: 取数据失败 {e}")
+        return _err('数据获取失败', 500)
+    finally:
+        if mongo_client:
+            mongo_client.close()
+
+    if not records:
+        return _ok({'analysis': '所选时间段暂无数据，请稍后再试。'})
+
+    # 计算统计摘要
+    avg_aqi = sum(r['AQI'] for r in records) / len(records)
+    max_aqi = max(r['AQI'] for r in records)
+    avg_pm25 = sum(r['PM2.5'] for r in records) / len(records)
+    latest = records[-1]
+
+    # 构建 prompt
+    data_str = '\n'.join([
+        f"{r['time']}  AQI={r['AQI']}  PM2.5={r['PM2.5']}  NO₂={r['NO₂']}  SO₂={r['SO₂']}  O₃={r['O₃']}"
+        for r in records
+    ])
+
+    prompt = f"""你是一个空气质量分析专家。以下是某监测点过去{hours}小时的空气质量数据（每5分钟一条）：
+
+{data_str}
+
+当前最新值：AQI={latest['AQI']}，PM2.5={latest['PM2.5']}
+时段均值：AQI={avg_aqi:.1f}，PM2.5={avg_pm25:.1f}，最高AQI={max_aqi}
+
+请用中文给出简短分析（200字以内），包括：
+1. 总体评价当前空气质量
+2. 主要污染物
+3. 与历史对比趋势
+4. 健康建议"""
+
+    # 调 DeepSeek API
+    try:
+        resp = _requests.post(
+            'https://api.deepseek.com/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {_DEEPSEEK_API_KEY}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'model': _DEEPSEEK_MODEL,
+                'messages': [{'role': 'user', 'content': prompt}],
+                'temperature': 0.7,
+                'max_tokens': 500
+            },
+            timeout=30
+        )
+        result = resp.json()
+
+        if 'choices' in result and len(result['choices']) > 0:
+            analysis = result['choices'][0]['message']['content']
+        else:
+            analysis = f'分析服务返回异常: {result.get("error", {}).get("message", "未知错误")}'
+            logger.error(f"DeepSeek返回: {result}")
+    except Exception as e:
+        logger.error(f"AI分析: 调用DeepSeek失败 {e}")
+        analysis = 'AI分析服务暂时不可用，请稍后再试。'
+
+    return _ok({'analysis': analysis})
+
+
+# ====================================================================
 # 21. 微信登录 /api/login
 # ====================================================================
 
