@@ -22,7 +22,7 @@ except ImportError:
 
 # 时间间隔变量（毫秒）
 # 可以直接修改这个值来调整默认的生成数据时间间隔
-DATA_GENERATION_INTERVAL = 1000  # 默认1秒生成一次数据
+DATA_GENERATION_INTERVAL = 5000  # 默认5秒生成一次数据（降低服务器负载）
 
 class AirQualitySimulator:
     def __init__(self, input_file, output_file, frequency=DATA_GENERATION_INTERVAL, max_records=100, api_endpoint=None, api_headers=None):
