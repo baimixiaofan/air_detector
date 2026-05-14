@@ -641,38 +641,20 @@ WECHAT_APPID = "wxbfec87a473baa901"
 WECHAT_SECRET = "96e215f309138ca69c602e2b0134a62d"
 
 # ====================================================================
-# 0. 创建设备 /api/device/create
+# 0. 设备配置
 # ====================================================================
-def _gen_device_id():
-    """生成唯一的 6 位设备 ID（字母+数字）"""
-    import hashlib as _hashlib
-    import time as _time
-    raw = f"{_time.time()}{os.urandom(4).hex()}"
-    code = _hashlib.md5(raw.encode()).hexdigest()[:6].upper()
-    return code
+_DEVICE_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'device_config.json')
 
 
-@miniprogram.route('/api/device/create', methods=['POST'])
-def create_device():
-    """创建一个新设备，返回设备 ID。用户输入此 ID 绑定即可"""
-    device_id = _gen_device_id()
-
-    conn = None
+def _get_valid_device_ids():
+    """从配置文件读取合法的设备 ID 列表"""
     try:
-        conn = _get_mysql()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO devices (device_id, status, create_time) VALUES (%s, 'offline', NOW())", (device_id,))
-        conn.commit()
-        logger.info(f"[设备] 创建新设备: {device_id}")
-        return _ok({'device_id': device_id, 'message': '设备创建成功，请输入此 ID 绑定'})
-    except pymysql.Error as e:
-        if conn:
-            conn.rollback()
-        logger.error(f"[设备] 创建设备失败: {e}")
-        return _err('创建设备失败', 500)
-    finally:
-        if conn:
-            conn.close()
+        with open(_DEVICE_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            return {d['code'] for d in config.get('devices', [])}
+    except Exception as e:
+        logger.error(f"读取设备配置文件失败: {e}")
+        return set()
 
 
 # ====================================================================
@@ -750,6 +732,12 @@ def bind_device():
     open_id, device_id = body.get('open_id'), body.get('device_id')
     if not open_id or not device_id:
         return _err('缺少 open_id 或 device_id 参数')
+
+    # 校验设备 ID 是否在配置文件中
+    valid_ids = _get_valid_device_ids()
+    if device_id not in valid_ids:
+        return _err(f'无效的设备 ID: {device_id}')
+
     conn = None
     try:
         conn = _get_mysql()
