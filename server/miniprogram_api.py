@@ -18,8 +18,6 @@ import tenacity
 import redis as _redis_module
 import hashlib
 
-import flask_api_server as _srv
-
 miniprogram = Blueprint('miniprogram', __name__)
 logger = logging.getLogger(__name__)
 
@@ -1393,3 +1391,7 @@ def delete_user(record_id):
         return _json_error(str(e), 500)
     finally:
         conn.close()
+
+
+# 延迟导入——避免与 flask_api_server.py 的循环导入
+import flask_api_server as _srv
