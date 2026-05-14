@@ -574,6 +574,24 @@ def get_current():
         data = _map_fields(doc)
         data['device_id'] = device_id
         data['timestamp'] = doc.get('timestamp', '')
+
+        # 检查报警阈值
+        aqi_val = data.get('aqi')
+        if aqi_val is not None:
+            conn = None
+            try:
+                conn = _get_mysql()
+                cur = conn.cursor()
+                cur.execute('SELECT aqi_max, pm2_5_max FROM user_alerts WHERE device_id=%s AND is_enabled=1 AND aqi_max IS NOT NULL', (device_id,))
+                alert = cur.fetchone()
+                if alert and aqi_val >= float(alert['aqi_max']):
+                    data['alert'] = True
+                    data['alert_level'] = 'severe'
+            except Exception:
+                pass
+            finally:
+                if conn: conn.close()
+
         return _ok(data)
     except PyMongoError as e:
         logger.error(f"MongoDB 查询失败: {e}")
@@ -1003,6 +1021,108 @@ def list_favorites():
         return _err('查询失败', 500)
     finally:
         if conn: conn.close()
+
+
+# ====================================================================
+# 报警阈值 /api/alerts/*
+# ====================================================================
+
+@miniprogram.route('/api/alerts/set', methods=['POST'])
+def set_alert():
+    body = request.json or {}
+    open_id, device_id = body.get('open_id'), body.get('device_id')
+    if not open_id or not device_id:
+        return _err('缺少 open_id 或 device_id 参数')
+
+    aqi_max = body.get('aqi_max')
+    pm2_5_max = body.get('pm2_5_max')
+
+    conn = None
+    try:
+        conn = _get_mysql()
+        cur = conn.cursor()
+        cur.execute('SELECT id FROM user_alerts WHERE open_id=%s AND device_id=%s', (open_id, device_id))
+        if cur.fetchone():
+            cur.execute('UPDATE user_alerts SET aqi_max=%s, pm2_5_max=%s, is_enabled=1 WHERE open_id=%s AND device_id=%s',
+                        (aqi_max, pm2_5_max, open_id, device_id))
+        else:
+            cur.execute('INSERT INTO user_alerts (open_id, device_id, aqi_max, pm2_5_max, is_enabled) VALUES (%s,%s,%s,%s,1)',
+                        (open_id, device_id, aqi_max, pm2_5_max))
+        conn.commit()
+        return _ok(message='报警阈值设置成功')
+    except pymysql.Error as e:
+        if conn: conn.rollback()
+        return _err('设置失败', 500)
+    finally:
+        if conn: conn.close()
+
+
+@miniprogram.route('/api/alerts', methods=['GET'])
+def get_alert():
+    open_id = request.args.get('open_id')
+    device_id = request.args.get('device_id')
+    if not open_id or not device_id:
+        return _err('缺少参数')
+
+    conn = None
+    try:
+        conn = _get_mysql()
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM user_alerts WHERE open_id=%s AND device_id=%s', (open_id, device_id))
+        row = cur.fetchone()
+        return _ok(row if row else {})
+    except pymysql.Error as e:
+        return _err('查询失败', 500)
+    finally:
+        if conn: conn.close()
+
+
+# ====================================================================
+# 一键超阈值演示 /api/device/<code>/trigger-alert
+# ====================================================================
+
+@miniprogram.route('/api/device/<code>/trigger-alert', methods=['POST'])
+def trigger_alert(code):
+    """向 MongoDB 插入一条高 AQI 模拟数据，用于演示报警"""
+    mongo_client = None
+    try:
+        mongo_client, col = _get_mongo()
+        from datetime import datetime as _dt
+        doc = {
+            "device_id": code,
+            "client_ip": code,
+            "timestamp": _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+            "data": {"AQI": 300, "PM₂.₅": 150, "NO₂": 80, "SO₂": 30, "O₃": 200},
+            "server_time": _dt.now().isoformat()
+        }
+        col.insert_one(doc)
+        logger.info(f"[报警演示] 为设备 {code} 插入超阈值数据 (AQI=300)")
+        return _ok(message=f'设备 {code} 已触发报警 (AQI=300)')
+    except PyMongoError as e:
+        logger.error(f"[报警演示] 插入失败: {e}")
+        return _err('操作失败', 500)
+    finally:
+        if mongo_client:
+            mongo_client.close()
+
+
+@miniprogram.route('/api/device/<code>/clear-alert', methods=['POST'])
+def clear_alert(code):
+    """删除刚才插入的超阈值模拟数据"""
+    mongo_client = None
+    try:
+        mongo_client, col = _get_mongo()
+        from datetime import datetime as _dt
+        cutoff = _dt.now().strftime('%Y-%m-%d %H:%M:%S')
+        result = col.delete_many({"device_id": code, "data.AQI": 300, "timestamp": {"$gte": cutoff[:11] + "00:00:00"}})
+        logger.info(f"[报警演示] 清除设备 {code} 的模拟数据 ({result.deleted_count}条)")
+        return _ok(message=f'已清除 {result.deleted_count} 条模拟数据')
+    except PyMongoError as e:
+        logger.error(f"[报警演示] 清除失败: {e}")
+        return _err('操作失败', 500)
+    finally:
+        if mongo_client:
+            mongo_client.close()
 
 
 # ====================================================================

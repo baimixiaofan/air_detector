@@ -545,6 +545,19 @@
                     </div>
                 </div>
             </div>
+            <div class="panel">
+                <div class="panel-header" style="background-color: #e74c3c;">报警演示</div>
+                <div class="panel-content">
+                    <div class="controls">
+                        <div class="input-group">
+                            <label>设备:</label>
+                            <input type="text" id="alert-device-code" value="CQ_001" style="width:70px;">
+                        </div>
+                        <button class="stop-btn" onclick="triggerAlert()" style="font-size:0.85em;">触发报警</button>
+                        <button class="start-btn" onclick="clearAlert()" style="font-size:0.85em;">清除报警</button>
+                    </div>
+                </div>
+            </div>
             <div class="panel simulator-list-panel">
                 <div class="panel-content">
                     <div id="simulators-list" class="simulator-list">
@@ -828,6 +841,31 @@
             } catch (error) {
                 console.error('停止模拟器失败:', error);
                 alert(`停止模拟器失败: ${error.message}`);
+            }
+        }
+
+        async function triggerAlert() {
+            const code = document.getElementById('alert-device-code').value || 'CQ_001';
+            if (!confirm(`确定要为 ${code} 触发报警演示吗？(AQI=300)`)) return;
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/device/${code}/trigger-alert`, { method: 'POST' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message);
+                alert(data.message);
+            } catch (error) {
+                alert('触发失败: ' + error.message);
+            }
+        }
+
+        async function clearAlert() {
+            const code = document.getElementById('alert-device-code').value || 'CQ_001';
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/device/${code}/clear-alert`, { method: 'POST' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.message);
+                alert(data.message);
+            } catch (error) {
+                alert('清除失败: ' + error.message);
             }
         }
 
