@@ -567,7 +567,7 @@ def get_current():
     mongo_client = None
     try:
         mongo_client, col = _get_mongo()
-        doc = col.find_one({'client_ip': device_id}, sort=[('server_time', -1)])
+        doc = col.find_one({'$or': [{'device_id': device_id}, {'client_ip': device_id}]}, sort=[('server_time', -1)])
         if not doc:
             return _ok({'device_id': device_id, 'message': '暂无数据'})
 
@@ -603,7 +603,7 @@ def get_history():
         cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
         mongo_client, col = _get_mongo()
         docs = col.find(
-            {'client_ip': device_id, 'timestamp': {'$gte': cutoff}},
+            {'$or': [{'device_id': device_id}, {'client_ip': device_id}], 'timestamp': {'$gte': cutoff}},
             sort=[('timestamp', 1)]
         )
         records = []
@@ -806,7 +806,7 @@ def list_devices():
 
         mongo_client, col = _get_mongo()
         pipeline = [
-            {'$match': {'client_ip': {'$in': device_ids}}},
+            {'$match': {'$or': [{'device_id': {'$in': device_ids}}, {'client_ip': {'$in': device_ids}}]}},
             {'$sort': {'server_time': -1}},
             {'$group': {'_id': '$client_ip', 'latest_time': {'$first': '$timestamp'}, 'server_time': {'$first': '$server_time'}}}
         ]

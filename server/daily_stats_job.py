@@ -103,7 +103,7 @@ def ensure_unique_index(cursor):
 def compute_daily_stats():
     """
     从 MongoDB 读取前一天的原始数据，
-    按设备（client_ip）聚合统计，写入 MySQL 的 daily_summary 表。
+    按设备（device_id / client_ip）聚合统计，写入 MySQL 的 daily_summary 表。
     """
     mongo_client = None
     mysql_conn = None
@@ -117,9 +117,9 @@ def compute_daily_stats():
         pipeline = [
             # 匹配昨天的时间戳（timestamp 字段格式: "YYYY-MM-DD HH:MM:SS"）
             {"$match": {"timestamp": {"$regex": f"^{yesterday}"}}},
-            # 按 client_ip 分组，计算统计指标
+            # 按 device_id 分组（优先），兼容旧数据用 client_ip
             {"$group": {
-                "_id": "$client_ip",
+                "_id": {"$ifNull": ["$device_id", "$client_ip"]},
                 "avg_aqi":   {"$avg": "$data.AQI"},
                 "max_aqi":   {"$max": "$data.AQI"},
                 "avg_pm2_5": {"$avg": "$data.PM₂.₅"}
