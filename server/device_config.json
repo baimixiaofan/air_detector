@@ -1,0 +1,7 @@
+{
+  "devices": [
+    {"code": "CQ_001", "name": "重庆-解放碑", "longitude": 106.55, "latitude": 29.56},
+    {"code": "CQ_002", "name": "重庆-观音桥", "longitude": 106.53, "latitude": 29.58},
+    {"code": "CQ_003", "name": "重庆-南滨路", "longitude": 106.58, "latitude": 29.54}
+  ]
+}

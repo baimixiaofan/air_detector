@@ -641,6 +641,27 @@ WECHAT_APPID = "wxbfec87a473baa901"
 WECHAT_SECRET = "96e215f309138ca69c602e2b0134a62d"
 
 # ====================================================================
+# 0. 可用设备列表 /api/devices/available
+# ====================================================================
+_DEVICE_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'device_config.json')
+
+
+def _load_device_config():
+    try:
+        with open(_DEVICE_CONFIG_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f).get('devices', [])
+    except Exception as e:
+        logger.error(f"读取设备配置文件失败: {e}")
+        return []
+
+
+@miniprogram.route('/api/devices/available', methods=['GET'])
+def list_available_devices():
+    devices = _load_device_config()
+    return _ok(devices)
+
+
+# ====================================================================
 # 21. 微信登录 /api/login
 # ====================================================================
 
