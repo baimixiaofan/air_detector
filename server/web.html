@@ -540,12 +540,8 @@
                         </div>
                     </div>
                     <div class="controls">
-                        <div class="input-group">
-                            <label>数量:</label>
-                            <input type="number" id="simulator-count" min="1" value="5">
-                        </div>
-                        <button class="start-btn" onclick="startSimulator()">启动</button>
-                        <button class="stop-btn" onclick="stopAllSimulators()">停止</button>
+                        <button class="start-btn" onclick="startAllSimulators()" style="flex:1;">开始模拟</button>
+                        <button class="stop-btn" onclick="stopAllSimulators()" style="flex:1;">停止模拟</button>
                     </div>
                 </div>
             </div>
@@ -798,15 +794,14 @@
             }
         }
 
-        async function startSimulator() {
-            const count = parseInt(document.getElementById('simulator-count').value) || 5;
-            if (!confirm(`确定要启动 ${count} 个模拟器吗？`)) return;
+        async function startAllSimulators() {
+            if (!confirm('确定要启动所有模拟器吗？')) return;
 
             try {
                 const response = await fetch(`${API_BASE_URL}/api/start_simulator`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ count: count })
+                    body: '{}'
                 });
                 const data = await response.json();
                 if (!response.ok) throw new Error(data.message || `HTTP error! status: ${response.status}`);

@@ -214,6 +214,7 @@ class RedisStreamConsumer:
                 "timestamp": msg_data.get("timestamp"),
                 "data": json.loads(msg_data.get("data", "{}")) if msg_data.get("data") else {},
                 "client_ip": msg_data.get("client_ip"),
+                "device_id": msg_data.get("device_id", msg_data.get("client_ip")),
                 "server_time": msg_data.get("server_time")
             }
             
