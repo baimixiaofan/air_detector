@@ -635,7 +635,14 @@ def daily_summary():
             'SELECT device_id, stat_date, avg_aqi, max_aqi, avg_pm2_5 '
             'FROM daily_summary WHERE stat_date = %s', (date,)
         )
-        return _ok(cur.fetchall())
+        rows = cur.fetchall()
+        for row in rows:
+            if row.get('stat_date'):
+                row['stat_date'] = row['stat_date'].strftime('%Y-%m-%d')
+            for k in ('avg_aqi', 'max_aqi', 'avg_pm2_5'):
+                if row.get(k) is not None:
+                    row[k] = float(row[k])
+        return _ok(rows)
     except pymysql.Error as e:
         logger.error(f"MySQL 查询失败: {e}")
         return _err('数据库查询失败', 500)
