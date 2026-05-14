@@ -578,19 +578,24 @@ def get_current():
         # 检查报警阈值
         aqi_val = data.get('aqi')
         if aqi_val is not None:
+            alert_threshold = None
             conn = None
             try:
                 conn = _get_mysql()
                 cur = conn.cursor()
-                cur.execute('SELECT aqi_max, pm2_5_max FROM user_alerts WHERE device_id=%s AND is_enabled=1 AND aqi_max IS NOT NULL', (device_id,))
-                alert = cur.fetchone()
-                if alert and aqi_val >= float(alert['aqi_max']):
-                    data['alert'] = True
-                    data['alert_level'] = 'severe'
+                cur.execute('SELECT aqi_max FROM user_alerts WHERE device_id=%s AND is_enabled=1 AND aqi_max IS NOT NULL', (device_id,))
+                row = cur.fetchone()
+                alert_threshold = float(row['aqi_max']) if row else None
             except Exception:
                 pass
             finally:
                 if conn: conn.close()
+
+            # 无自定义阈值时使用默认阈值 AQI > 150
+            alert_threshold = alert_threshold or 150
+            if aqi_val >= alert_threshold:
+                data['alert'] = True
+                data['alert_level'] = 'severe'
 
         return _ok(data)
     except PyMongoError as e:
