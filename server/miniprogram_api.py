@@ -750,7 +750,7 @@ def _get_valid_device_ids():
 # AI 空气质量分析 /api/ai/analyze
 # ====================================================================
 
-_DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
+_DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', 'sk-19745d6c32e64f7bb828a3d31180d97b')
 _DEEPSEEK_MODEL = 'deepseek-chat'
 
 
