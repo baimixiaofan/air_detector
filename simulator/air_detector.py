@@ -80,6 +80,11 @@ class AirQualitySimulator:
         # 初始值设为均值附近（随机游走起点）
         self.current_values = self.mean_vec.values + np.random.normal(0, 3, size=len(self.cols))
 
+        # 随机警报事件状态
+        self.alert_event_active = False   # 是否正在触发警报
+        self.alert_countdown = 0          # 警报剩余步数
+        self.alert_direction = 1          # 1=上升阶段, -1=回落阶段
+
         # 数据存储
         self.simulated_data = []
         self.timestamps = []
@@ -146,24 +151,59 @@ class AirQualitySimulator:
             self.stop()
     
     def generate_data(self):
-        """数据生成线程（随机游走，数据平滑但有波动）"""
+        """数据生成线程（随机游走 + 随机警报事件）"""
         while self.running:
             try:
-                # 随机游走：每步加一个小的相关变化
-                # 协方差矩阵 × 0.03 让变化幅度较小
+                # ---- 随机触发警报事件 ----
+                if not self.alert_event_active and np.random.random() < 0.02:
+                    # 2%概率触发警报，持续 5~15 步
+                    self.alert_event_active = True
+                    self.alert_countdown = np.random.randint(5, 15)
+                    self.alert_direction = 1
+                    print(f"⚠️ 触发空气质量警报事件！持续 {self.alert_countdown} 步")
+
+                # ---- 基础随机游走 ----
                 delta = np.random.multivariate_normal(
                     np.zeros(len(self.cols)),
                     self.cov_mat.values * 0.03
                 )
                 self.current_values += delta
 
-                # 限制在合理范围内，模拟真实空气质量区间
+                # ---- 警报事件：AQI 大幅上升 ----
+                if self.alert_event_active:
+                    # 前一半步数上升，后一半回落
+                    if self.alert_direction == 1:
+                        # 每步 AQI +15~30，其他污染物也同步上升
+                        spike = np.array([
+                            np.random.uniform(15, 30),   # AQI
+                            np.random.uniform(8, 15),    # PM2.5
+                            np.random.uniform(5, 10),    # NO2
+                            np.random.uniform(2, 5),     # SO2
+                            np.random.uniform(3, 8)      # O3
+                        ])
+                        self.current_values += spike
+                        half = self.alert_countdown // 2
+                        if self.alert_countdown <= half:
+                            self.alert_direction = -1
+                    else:
+                        # 回落阶段：每步回归接近正常
+                        for i, col in enumerate(self.cols):
+                            target = self.mean_vec.values[i]
+                            self.current_values[i] += (target - self.current_values[i]) * 0.15
+                            self.current_values[i] += np.random.normal(0, 1)
+
+                    self.alert_countdown -= 1
+                    if self.alert_countdown <= 0:
+                        self.alert_event_active = False
+                        print("✅ 警报事件结束，数据恢复")
+
+                # ---- 限制在合理范围 ----
                 bounds = {
-                    'AQI':    (10, 180),
-                    'PM₂.₅':  (5, 90),
-                    'NO₂':    (5, 70),
-                    'SO₂':    (2, 35),
-                    'O₃':     (5, 90)
+                    'AQI':    (10, 350),
+                    'PM₂.₅':  (5, 200),
+                    'NO₂':    (5, 100),
+                    'SO₂':    (2, 50),
+                    'O₃':     (5, 120)
                 }
                 for i, col in enumerate(self.cols):
                     lo, hi = bounds.get(col, (0, 999))
