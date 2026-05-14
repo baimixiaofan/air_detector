@@ -173,6 +173,7 @@ def receive_air_quality_data():
             record = {
                 "timestamp": data.get('timestamp'),
                 "data": json.dumps(data.get('data')),
+                "device_id": data.get('device_id', client_ip),
                 "client_ip": client_ip,
                 "server_time": datetime.now().isoformat()
             }
@@ -301,38 +302,47 @@ def start_simulator():
     client_ip = request.remote_addr
     logger.info(f"[{now}] 收到启动模拟器请求 - 来源IP: {client_ip}")
 
-    data = request.json or {}
-    count = max(1, data.get('count', 5)) if isinstance(data.get('count'), int) else 5
-
     try:
-        script_dir = '/home/air_detector/'
-        if not os.path.exists(script_dir):
-            return jsonify({"status": "error", "message": f"服务器脚本目录不存在: {script_dir}"}), 500
+        subprocess.run(['docker', '--version'], capture_output=True, text=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return jsonify({"status": "error", "message": "Docker 不可用"}), 500
 
-        scripts = [f for f in os.listdir(script_dir) if f.endswith('.sh')]
-        if not scripts:
-            return jsonify({"status": "error", "message": f"在 {script_dir} 下未找到 .sh 脚本"}), 500
-
-        script = next((f for f in scripts if any(k in f.lower() for k in ['start', 'launch', 'run'])), scripts[0])
-        script_path = os.path.join(script_dir, script)
-
-        if not os.path.exists(script_path):
-            return jsonify({"status": "error", "message": f"启动脚本不存在: {script_path}"}), 500
-        if not os.access(script_path, os.X_OK):
-            os.chmod(script_path, 0o755)
-
-        try:
-            subprocess.run(['docker', '--version'], capture_output=True, text=True, check=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return jsonify({"status": "error", "message": "Docker 不可用"}), 500
-
-        result = subprocess.run(['bash', script_path, str(count)], capture_output=True, text=True, cwd=script_dir)
-        if result.returncode == 0:
-            return jsonify({"status": "success", "message": f"启动脚本执行成功", "output": result.stdout}), 200
-        else:
-            return jsonify({"status": "error", "message": f"启动脚本执行失败: {result.stderr}"}), 500
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'device_config.json')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            devices = json.load(f).get('devices', [])
     except Exception as e:
-        return jsonify({"status": "error", "message": f"启动模拟器时发生未知错误: {e}"}), 500
+        return jsonify({"status": "error", "message": f"读取设备配置失败: {e}"}), 500
+
+    if not devices:
+        return jsonify({"status": "error", "message": "设备配置为空"}), 500
+
+    started, errors = [], []
+    for device in devices:
+        code = device['code']
+        cname = f'sim_{code}'
+        subprocess.run(['docker', 'rm', '-f', cname], capture_output=True, text=True)
+        subprocess.run(['mkdir', '-p', f'/root/simulator_output/{cname}'])
+
+        cmd = [
+            'docker', 'run', '-d', '--name', cname, '--network', 'host',
+            '-e', f'SIMULATOR_ID={code}', '-e', 'REDIS_HOST=127.0.0.1',
+            '-v', f'/root/simulator_output/{cname}:/app/output',
+            'simulator-image',
+            'python', 'air_detector.py', '--output', '/app/output/simulated_air_data.json',
+            '--api-endpoint', 'https://47.109.191.13/api/air-quality',
+            '--api-header', f'X-API-Key={_srv.API_KEY}'
+        ]
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            (started if r.returncode == 0 else errors).append(code)
+        except Exception as e:
+            errors.append(code)
+
+    msg = f"成功启动 {len(started)} 个: {', '.join(started)}"
+    if errors:
+        msg += f"，失败: {', '.join(errors)}"
+    return jsonify({"status": "success" if started else "error", "message": msg}), 200
 
 
 # ====================================================================

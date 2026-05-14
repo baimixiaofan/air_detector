@@ -232,6 +232,7 @@ class AirQualitySimulator:
             latest_data = self.simulated_data[-1]
         
         payload = {
+            "device_id": self.simulator_id,
             "timestamp": latest_timestamp,
             "data": {}
         }
