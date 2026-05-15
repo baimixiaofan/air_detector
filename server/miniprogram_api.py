@@ -722,13 +722,44 @@ def daily_summary():
                 'FROM daily_summary WHERE stat_date = %s', (date,)
             )
         rows = cur.fetchall()
-        for row in rows:
-            if row.get('stat_date'):
-                row['stat_date'] = row['stat_date'].strftime('%Y-%m-%d')
-            for k in ('avg_aqi', 'max_aqi', 'avg_pm2_5'):
-                if row.get(k) is not None:
-                    row[k] = float(row[k])
-        return _ok(rows)
+        if rows:
+            for row in rows:
+                if row.get('stat_date'):
+                    row['stat_date'] = row['stat_date'].strftime('%Y-%m-%d')
+                for k in ('avg_aqi', 'max_aqi', 'avg_pm2_5'):
+                    if row.get(k) is not None:
+                        row[k] = float(row[k])
+            return _ok(rows)
+
+        # MySQL 无数据时（如今天还没跑定时任务），从 MongoDB 实时聚合
+        if device_id:
+            mongo_client, col = _get_mongo()
+            cutoff = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+            pipeline = [
+                {'$match': {
+                    '$or': [{'device_id': device_id}, {'client_ip': device_id}],
+                    'timestamp': {'$gte': cutoff}
+                }},
+                {'$group': {
+                    '_id': None,
+                    'avg_aqi': {'$avg': '$data.AQI'},
+                    'max_aqi': {'$max': '$data.AQI'},
+                    'avg_pm2_5': {'$avg': '$data.PM₂.₅'}
+                }}
+            ]
+            stats = list(col.aggregate(pipeline))
+            mongo_client.close()
+            if stats:
+                row = stats[0]
+                ret = [{
+                    'device_id': device_id,
+                    'stat_date': date,
+                    'avg_aqi': round(row.get('avg_aqi') or 0, 1),
+                    'max_aqi': round(row.get('max_aqi') or 0, 1),
+                    'avg_pm2_5': round(row.get('avg_pm2_5') or 0, 1)
+                }]
+                return _ok(ret)
+        return _ok([])
     except pymysql.Error as e:
         logger.error(f"MySQL 查询失败: {e}")
         return _err('数据库查询失败', 500)
