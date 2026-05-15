@@ -575,7 +575,7 @@ def get_current():
         data['device_id'] = device_id
         data['timestamp'] = doc.get('timestamp', '')
 
-        # 检查报警阈值
+        # 检查报警阈值（查最近5分钟内是否有超阈值数据，避免被模拟器新数据覆盖）
         aqi_val = data.get('aqi')
         if aqi_val is not None:
             alert_threshold = None
@@ -591,9 +591,15 @@ def get_current():
             finally:
                 if conn: conn.close()
 
-            # 无自定义阈值时使用默认阈值 AQI > 150
             alert_threshold = alert_threshold or 150
-            if aqi_val >= alert_threshold:
+            # 查最近5分钟内是否有超阈值的记录
+            cutoff = (datetime.now() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+            alert_doc = col.find_one(
+                {'$or': [{'device_id': device_id}, {'client_ip': device_id}],
+                 'timestamp': {'$gte': cutoff}, 'data.AQI': {'$gte': alert_threshold}},
+                sort=[('timestamp', -1)]
+            )
+            if alert_doc:
                 data['alert'] = True
                 data['alert_level'] = 'severe'
 
