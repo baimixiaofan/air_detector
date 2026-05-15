@@ -671,37 +671,34 @@ def daily_summary():
 
     if hours and device_id:
         try:
-            cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
             mongo_client, col = _get_mongo()
-            pipeline = [
-                {'$match': {
-                    '$or': [{'device_id': device_id}, {'client_ip': device_id}],
-                    'timestamp': {'$gte': cutoff}
-                }},
-                {'$group': {
-                    '_id': None,
-                    'avg_aqi': {'$avg': '$data.AQI'},
-                    'max_aqi': {'$max': '$data.AQI'},
-                    'avg_pm2_5': {'$avg': '$data.PM₂.₅'}
-                }}
-            ]
-            stats = list(col.aggregate(pipeline))
+            cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+            docs = col.find(
+                {'$or': [{'device_id': device_id}, {'client_ip': device_id}], 'timestamp': {'$gte': cutoff}},
+                sort=[('timestamp', 1)]
+            )
+            aqi_vals, pm25_vals = [], []
+            for doc in docs:
+                d = doc.get('data', {})
+                aqi = d.get('AQI')
+                pm25 = d.get('PM₂.₅')
+                if aqi is not None: aqi_vals.append(float(aqi))
+                if pm25 is not None: pm25_vals.append(float(pm25))
             mongo_client.close()
 
-            if stats:
-                row = stats[0]
+            if aqi_vals:
                 data = [{
                     'device_id': device_id,
                     'stat_date': f'过去{hours}小时',
-                    'avg_aqi': round(row.get('avg_aqi') or 0, 1),
-                    'max_aqi': round(row.get('max_aqi') or 0, 1),
-                    'avg_pm2_5': round(row.get('avg_pm2_5') or 0, 1)
+                    'avg_aqi': round(sum(aqi_vals) / len(aqi_vals), 1),
+                    'max_aqi': round(max(aqi_vals), 1),
+                    'avg_pm2_5': round(sum(pm25_vals) / len(pm25_vals), 1) if pm25_vals else 0
                 }]
             else:
                 data = []
             return _ok(data)
         except PyMongoError as e:
-            logger.error(f"MongoDB 聚合失败: {e}")
+            logger.error(f"MongoDB 查询失败: {e}")
             return _err('查询失败', 500)
 
     # 原逻辑：从 MySQL daily_summary 查
@@ -735,28 +732,25 @@ def daily_summary():
         if device_id:
             mongo_client, col = _get_mongo()
             cutoff = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-            pipeline = [
-                {'$match': {
-                    '$or': [{'device_id': device_id}, {'client_ip': device_id}],
-                    'timestamp': {'$gte': cutoff}
-                }},
-                {'$group': {
-                    '_id': None,
-                    'avg_aqi': {'$avg': '$data.AQI'},
-                    'max_aqi': {'$max': '$data.AQI'},
-                    'avg_pm2_5': {'$avg': '$data.PM₂.₅'}
-                }}
-            ]
-            stats = list(col.aggregate(pipeline))
+            docs = col.find(
+                {'$or': [{'device_id': device_id}, {'client_ip': device_id}], 'timestamp': {'$gte': cutoff}},
+                sort=[('timestamp', 1)]
+            )
+            aqi_vals, pm25_vals = [], []
+            for doc in docs:
+                d = doc.get('data', {})
+                aqi = d.get('AQI')
+                pm25 = d.get('PM₂.₅')
+                if aqi is not None: aqi_vals.append(float(aqi))
+                if pm25 is not None: pm25_vals.append(float(pm25))
             mongo_client.close()
-            if stats:
-                row = stats[0]
+            if aqi_vals:
                 ret = [{
                     'device_id': device_id,
                     'stat_date': date,
-                    'avg_aqi': round(row.get('avg_aqi') or 0, 1),
-                    'max_aqi': round(row.get('max_aqi') or 0, 1),
-                    'avg_pm2_5': round(row.get('avg_pm2_5') or 0, 1)
+                    'avg_aqi': round(sum(aqi_vals) / len(aqi_vals), 1),
+                    'max_aqi': round(max(aqi_vals), 1),
+                    'avg_pm2_5': round(sum(pm25_vals) / len(pm25_vals), 1) if pm25_vals else 0
                 }]
                 return _ok(ret)
         return _ok([])
