@@ -3,7 +3,10 @@
     "allow": [
       "Bash(dir \"D:\\\\flash_app\\\\---\")",
       "Bash(git commit -m ' *)",
-      "Read(//c/Users/baimixiaofan/Pictures/Screenshots/**)"
+      "Read(//c/Users/baimixiaofan/Pictures/Screenshots/**)",
+      "Bash(ssh team@47.109.191.13 -p 22 \"mongosh air_quality --eval 'db.records.deleteMany\\({}\\)' --quiet 2>&1\")",
+      "Bash(ssh team@47.109.191.13 -p 22 \"mongo air_quality --eval 'db.records.remove\\({}\\)' --quiet 2>&1\")",
+      "Bash(pip install *)"
     ]
   }
 }

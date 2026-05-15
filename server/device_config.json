@@ -2,6 +2,10 @@
   "devices": [
     {"code": "CQ_001", "name": "重庆-解放碑", "longitude": 106.55, "latitude": 29.56},
     {"code": "CQ_002", "name": "重庆-观音桥", "longitude": 106.53, "latitude": 29.58},
-    {"code": "CQ_003", "name": "重庆-南滨路", "longitude": 106.58, "latitude": 29.54}
+    {"code": "CQ_003", "name": "重庆-南滨路", "longitude": 106.58, "latitude": 29.54},
+    {"code": "CQ_004", "name": "重庆-大学城", "longitude": 106.31, "latitude": 29.60},
+    {"code": "CQ_005", "name": "重庆-江北机场", "longitude": 106.64, "latitude": 29.72},
+    {"code": "CQ_006", "name": "重庆-磁器口", "longitude": 106.45, "latitude": 29.57},
+    {"code": "CQ_007", "name": "重庆-南山", "longitude": 106.60, "latitude": 29.53}
   ]
 }
