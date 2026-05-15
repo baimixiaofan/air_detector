@@ -623,8 +623,17 @@ def get_history():
 
     mongo_client = None
     try:
-        cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
         mongo_client, col = _get_mongo()
+        # 用数据自身的最新时间作为基准，避免 Docker UTC 与宿主机时区偏移
+        latest_doc = col.find_one(
+            {'$or': [{'device_id': device_id}, {'client_ip': device_id}]},
+            sort=[('timestamp', -1)]
+        )
+        if latest_doc and latest_doc.get('timestamp'):
+            ref_time = datetime.strptime(latest_doc['timestamp'], '%Y-%m-%d %H:%M:%S')
+        else:
+            ref_time = datetime.now()
+        cutoff = (ref_time - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
         docs = col.find(
             {'$or': [{'device_id': device_id}, {'client_ip': device_id}], 'timestamp': {'$gte': cutoff}},
             sort=[('timestamp', 1)]
@@ -778,8 +787,16 @@ def ai_analyze():
     # 从 MongoDB 取数据
     mongo_client = None
     try:
-        cutoff = (datetime.now() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
         mongo_client, col = _get_mongo()
+        latest_doc = col.find_one(
+            {'$or': [{'device_id': device_id}, {'client_ip': device_id}]},
+            sort=[('timestamp', -1)]
+        )
+        if latest_doc and latest_doc.get('timestamp'):
+            ref_time = datetime.strptime(latest_doc['timestamp'], '%Y-%m-%d %H:%M:%S')
+        else:
+            ref_time = datetime.now()
+        cutoff = (ref_time - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
         docs = col.find(
             {'$or': [{'device_id': device_id}, {'client_ip': device_id}], 'timestamp': {'$gte': cutoff}},
             sort=[('timestamp', 1)],
