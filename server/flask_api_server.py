@@ -65,10 +65,14 @@ logging.basicConfig(level=numeric_level, format='%(asctime)s %(levelname)s: %(me
 logger = logging.getLogger(__name__)
 
 
-# ======================== 注册小程序后端蓝图 ========================
+# ======================== 注册蓝图 ========================
 from miniprogram_api import miniprogram
 app.register_blueprint(miniprogram)
 logger.info("小程序后端蓝图已注册")
+
+from admin_api import admin_api
+app.register_blueprint(admin_api, url_prefix='/api/admin')
+logger.info("管理后台蓝图已注册")
 
 
 if __name__ == '__main__':
