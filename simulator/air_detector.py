@@ -527,9 +527,8 @@ if __name__ == "__main__":
     parser.add_argument('--frequency', type=int, default=DATA_GENERATION_INTERVAL, help='数据生成频率（毫秒）')
     parser.add_argument('--max-records', type=int, default=100, help='保存的最大记录数')
     # 默认指向你的阿里云 HTTPS 接口
-    parser.add_argument('--api-endpoint', default='https://47.109.191.13:5000/api/air-quality', help='API端点URL')
-    # 默认带上服务器里写死的 API_KEY 暗号
-    parser.add_argument('--api-header', action='append', default=['X-API-Key=111'], help='API请求头，格式：key=value')
+    parser.add_argument('--api-endpoint', required=True, help='API端点URL')
+    parser.add_argument('--api-header', action='append', help='API请求头，格式：key=value（可重复）')
     
     args = parser.parse_args()
     

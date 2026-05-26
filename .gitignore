@@ -1,0 +1,37 @@
+# 模拟器输出数据
+simulated_air_data_*.json
+
+# 视频/文档附件（非代码）
+*.mp4
+*.docx
+~$*
+
+# 日志
+*.log
+server/server.log
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# Claude Code 本地配置（含服务器凭据）
+.claude/settings*.json
+.claude/scheduled_tasks.lock
+
+# 本地 SSH 辅助脚本
+ssh_tmp.ps1
+
+# 文档（非代码）
+docs/
+数据库结构.docx
+
+# 编辑器/IDE
+.arts/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+CLAUDE.md
