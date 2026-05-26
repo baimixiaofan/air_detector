@@ -5,11 +5,11 @@ IMAGE="simulator-image"
 BASE_NAME="sim"
 OUTPUT_BASE="$HOME/simulator_output"
 
-# Flask API 端点地址（HTTPS）
-API_ENDPOINT="https://47.109.191.13/api/air-quality"
+# Flask API 端点地址（HTTPS）— 通过环境变量传入，或替换为实际地址
+API_ENDPOINT="${API_ENDPOINT:-https://your-server.com/api/air-quality}"
 
-# API Key 鉴权
-API_KEY="111"
+# API Key 鉴权 — 通过环境变量传入
+API_KEY="${API_KEY:-}"
 
 # 使用 docker 绝对路径
 DOCKER_CMD="/usr/bin/docker"

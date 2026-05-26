@@ -33,7 +33,7 @@ REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
 REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
 REDIS_DB = int(os.getenv('REDIS_DB', 0))
 REDIS_STREAM = os.getenv('REDIS_STREAM', 'data_stream')
-API_KEY = '111'
+API_KEY = os.getenv('API_KEY', '')
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 
 # Redis 连接

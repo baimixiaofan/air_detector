@@ -6,7 +6,7 @@ import os
 MYSQL_HOST = os.getenv('MYSQL_HOST', 'localhost')
 MYSQL_PORT = int(os.getenv('MYSQL_PORT', 3306))
 MYSQL_USER = os.getenv('MYSQL_USER', 'air_user')
-MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', 'abc123456')
+MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD', '')
 MYSQL_DATABASE = os.getenv('MYSQL_DATABASE', 'air_quality')
 
 # ---- MongoDB 配置（原始数据读取来源）----

@@ -330,7 +330,7 @@ def start_simulator():
             '-v', f'/root/simulator_output/{cname}:/app/output',
             'simulator-image',
             'python', 'air_detector.py', '--output', '/app/output/simulated_air_data.json',
-            '--api-endpoint', 'https://47.109.191.13/api/air-quality',
+            '--api-endpoint', os.getenv('API_ENDPOINT', 'https://your-server.com/api/air-quality'),
             '--api-header', f'X-API-Key={_srv.API_KEY}'
         ]
         try:
@@ -771,8 +771,8 @@ def daily_summary():
 # ====================================================================
 # 微信配置（替换成你自己的）
 # ====================================================================
-WECHAT_APPID = "wxbfec87a473baa901"
-WECHAT_SECRET = "96e215f309138ca69c602e2b0134a62d"
+WECHAT_APPID = os.getenv('WECHAT_APPID', '')
+WECHAT_SECRET = os.getenv('WECHAT_APPSECRET', '')
 
 # ====================================================================
 # 0. 设备配置
@@ -795,7 +795,7 @@ def _get_valid_device_ids():
 # AI 空气质量分析 /api/ai/analyze
 # ====================================================================
 
-_DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', 'sk-19745d6c32e64f7bb828a3d31180d97b')
+_DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
 _DEEPSEEK_MODEL = 'deepseek-chat'
 
 
