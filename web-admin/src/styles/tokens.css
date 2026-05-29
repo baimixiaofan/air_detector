@@ -1,0 +1,79 @@
+:root {
+  /* Page */
+  --page-bg: #f5f6fa;
+  --card-bg: #ffffff;
+  --card-border: transparent;
+
+  /* Sidebar */
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e8ecf1;
+  --sidebar-text: #636e72;
+  --sidebar-text-active: #e17055;
+  --sidebar-hover-bg: #f8f9fb;
+  --sidebar-width: 220px;
+  --sidebar-collapsed-width: 64px;
+
+  /* Navbar */
+  --navbar-bg: #ffffff;
+  --navbar-border: #eef0f4;
+  --navbar-text: #2d3436;
+  --navbar-height: 56px;
+
+  /* Accent / Primary */
+  --color-primary: #e17055;
+  --color-primary-hover: #d63031;
+  --color-primary-light: rgba(225, 112, 85, 0.1);
+  --color-primary-gradient: linear-gradient(135deg, #e17055, #d63031);
+
+  /* Text */
+  --text-primary: #2d3436;
+  --text-secondary: #636e72;
+  --text-muted: #b2bec3;
+  --text-inverse: #ffffff;
+
+  /* KPI Card Themes */
+  --kpi-dark-bg: #2d3436;
+  --kpi-gradient-start: #e17055;
+  --kpi-gradient-end: #d63031;
+
+  /* Status */
+  --color-success: #00b894;
+  --color-warning: #fdcb6e;
+  --color-danger: #d63031;
+  --color-info: #74b9ff;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-size-kpi: 36px;
+  --font-size-h1: 24px;
+  --font-size-h2: 20px;
+  --font-size-h3: 16px;
+  --font-size-card-title: 14px;
+  --font-size-body: 13px;
+  --font-size-caption: 12px;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+
+  /* Element Plus Overrides */
+  --el-color-primary: #e17055;
+  --el-color-primary-light-3: #e8896f;
+  --el-color-primary-light-5: #f0a893;
+  --el-color-primary-light-7: #f7c7b8;
+  --el-color-primary-light-9: #fce8e3;
+  --el-color-primary-dark-2: #b85a44;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-font-size-base: 13px;
+}

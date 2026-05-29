@@ -1,16 +1,19 @@
 <template>
   <el-header class="navbar">
     <div class="navbar-left">
-      <el-breadcrumb separator="/">
-        <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
-        <el-breadcrumb-item v-if="title">{{ title }}</el-breadcrumb-item>
-      </el-breadcrumb>
+      <h2 class="page-title">{{ title }}</h2>
     </div>
     <div class="navbar-right">
+      <span class="current-date">{{ currentDate }}</span>
+      <el-badge :value="3" :max="99" class="notification-badge">
+        <el-icon :size="20" class="nav-icon"><Bell /></el-icon>
+      </el-badge>
       <el-dropdown trigger="click" @command="handleCommand">
         <span class="user-info">
-          <el-icon><User /></el-icon>
-          {{ userStore.displayName || '管理员' }}
+          <el-avatar :size="32" class="user-avatar">
+            {{ userStore.displayName?.charAt(0) || 'A' }}
+          </el-avatar>
+          <span class="user-name">{{ userStore.displayName || '管理员' }}</span>
           <el-icon><ArrowDown /></el-icon>
         </span>
         <template #dropdown>
@@ -29,7 +32,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { logout as logoutApi } from '@/api/auth'
@@ -39,6 +42,16 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const title = ref('')
+
+const currentDate = computed(() => {
+  const now = new Date()
+  return now.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long'
+  })
+})
 
 watch(() => route.meta, (meta) => {
   title.value = meta?.title || ''
@@ -59,7 +72,73 @@ function handleCommand(command) {
 </script>
 
 <style scoped>
-.navbar { background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid #e4e7ed; height: 50px; }
-.user-info { cursor: pointer; display: flex; align-items: center; gap: 4px; color: #606266; }
-.user-info:hover { color: #409eff; }
+.navbar {
+  background: var(--navbar-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--navbar-border);
+  height: var(--navbar-height);
+  box-shadow: var(--shadow-sm);
+}
+
+.navbar-left {
+  display: flex;
+  align-items: center;
+}
+
+.page-title {
+  font-size: var(--font-size-h3);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.current-date {
+  font-size: var(--font-size-body);
+  color: var(--text-secondary);
+}
+
+.nav-icon {
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+.nav-icon:hover {
+  color: var(--color-primary);
+}
+
+.notification-badge {
+  cursor: pointer;
+}
+
+.user-info {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  transition: color var(--transition-fast);
+}
+.user-info:hover {
+  color: var(--color-primary);
+}
+
+.user-avatar {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.user-name {
+  font-size: var(--font-size-body);
+  font-weight: 500;
+}
 </style>

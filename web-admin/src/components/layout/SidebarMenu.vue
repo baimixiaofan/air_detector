@@ -1,16 +1,16 @@
 <template>
   <el-aside :width="isCollapse ? '64px' : '220px'" class="sidebar">
     <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <el-icon :size="24" color="#e17055"><Monitor /></el-icon>
+      </div>
       <span v-if="!isCollapse" class="sidebar-title">空气质量平台</span>
-      <span v-else class="sidebar-title-small">AQ</span>
     </div>
     <el-menu
       :default-active="activeMenu"
       :collapse="isCollapse"
       :collapse-transition="false"
-      background-color="#001529"
-      text-color="#ffffffa6"
-      active-text-color="#fff"
+      class="sidebar-menu"
       router
     >
       <template v-for="item in menuItems" :key="item.path">
@@ -30,8 +30,10 @@
       </template>
     </el-menu>
 
-    <div class="collapse-btn" @click="isCollapse = !isCollapse">
-      <el-icon><Fold v-if="!isCollapse" /><Expand v-else /></el-icon>
+    <div class="sidebar-footer">
+      <div class="collapse-btn" @click="isCollapse = !isCollapse">
+        <el-icon :size="18"><Fold v-if="!isCollapse" /><Expand v-else /></el-icon>
+      </div>
     </div>
   </el-aside>
 </template>
@@ -103,10 +105,94 @@ const menuItems = computed(() => {
 </script>
 
 <style scoped>
-.sidebar { background: #001529; display: flex; flex-direction: column; transition: width 0.3s; overflow: hidden; }
-.sidebar-header { height: 60px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: bold; font-size: 16px; border-bottom: 1px solid #ffffff1a; }
-.sidebar-title-small { font-size: 20px; }
-.el-menu { border-right: none; flex: 1; }
-.collapse-btn { height: 40px; display: flex; align-items: center; justify-content: center; color: #ffffffa6; cursor: pointer; border-top: 1px solid #ffffff1a; }
-.collapse-btn:hover { color: #fff; }
+.sidebar {
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.sidebar-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--color-primary-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.sidebar-menu {
+  flex: 1;
+  border-right: none;
+  padding: 8px 0;
+}
+
+.sidebar-menu :deep(.el-menu-item),
+.sidebar-menu :deep(.el-sub-menu__title) {
+  color: var(--sidebar-text);
+  height: 44px;
+  margin: 2px 8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  padding-left: 16px !important;
+}
+
+.sidebar-menu :deep(.el-menu-item:hover),
+.sidebar-menu :deep(.el-sub-menu__title:hover) {
+  background: var(--sidebar-hover-bg);
+  color: var(--text-primary);
+}
+
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.sidebar-menu :deep(.el-sub-menu .el-menu-item) {
+  padding-left: 48px !important;
+  font-size: var(--font-size-body);
+  height: 40px;
+}
+
+.sidebar-footer {
+  border-top: 1px solid var(--sidebar-border);
+  padding: 8px;
+}
+
+.collapse-btn {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.collapse-btn:hover {
+  background: var(--sidebar-hover-bg);
+  color: var(--color-primary);
+}
 </style>
