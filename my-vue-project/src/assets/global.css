@@ -1,0 +1,147 @@
+/* ==========================================
+   1. 全局背景：科技坐标网格 + 深海暗斑
+   ========================================== */
+body,
+html,
+#app {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  /* 极暗的深蓝色作为基底 */
+  background-color: #030b19 !important;
+  /* 💡 核心魔法：用 CSS 画出铺满全屏的科技网格线，填补所有空白！ */
+  background-image:
+    linear-gradient(rgba(0, 245, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 245, 255, 0.05) 1px, transparent 1px),
+    radial-gradient(circle at 50% 30%, rgba(13, 40, 84, 0.8) 0%, rgba(3, 11, 25, 1) 70%) !important;
+  background-size:
+    40px 40px,
+    40px 40px,
+    100% 100% !important;
+  background-attachment: fixed;
+  color: #ccffff;
+}
+
+/* 强制 main 区域背景透明，露出底部的网格 */
+.el-main {
+  background-color: transparent !important;
+}
+
+/* ==========================================
+   2. 卡片重塑：玻璃态 + 内发光 + 机甲四角
+   ========================================== */
+.el-card {
+  /* 剔除生硬的背景，改为带有模糊效果的半透明玻璃态 */
+  background: rgba(10, 25, 50, 0.65) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  /* 极细的发光边框 */
+  border: 1px solid rgba(0, 245, 255, 0.2) !important;
+  /* 柔和的外发光与内阴影，增加厚度感 */
+  box-shadow:
+    inset 0 0 20px rgba(0, 245, 255, 0.05),
+    0 8px 30px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 4px !important;
+  position: relative;
+  overflow: visible !important;
+}
+
+/* 画出卡片左上和右下的荧光折角装饰 */
+.el-card::before,
+.el-card::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #00f5ff;
+  pointer-events: none;
+  z-index: 10;
+}
+.el-card::before {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+.el-card::after {
+  bottom: -2px;
+  right: -2px;
+  border-left: none;
+  border-top: none;
+}
+
+/* 卡片标题发光 */
+.el-card__header {
+  border-bottom: 1px solid rgba(0, 245, 255, 0.2) !important;
+  color: #00f5ff !important;
+  font-weight: bold;
+  text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+  background: linear-gradient(90deg, rgba(0, 245, 255, 0.1) 0%, transparent 100%);
+}
+
+/* ==========================================
+   3. 终极表格击穿：干掉所有白色，变成数据光幕
+   ========================================== */
+/* 让表格的所有容器彻底透明 */
+.el-table,
+.el-table__expanded-cell,
+.el-table th,
+.el-table tr,
+.el-table td,
+.el-table__body-wrapper,
+.el-table__header-wrapper {
+  background-color: transparent !important;
+  color: #ccffff !important;
+  border-color: rgba(0, 245, 255, 0.15) !important;
+}
+
+/* 表头：高亮荧光底色 */
+.el-table th.el-table__cell {
+  background: rgba(0, 245, 255, 0.15) !important;
+  color: #00f5ff !important;
+  font-weight: 900;
+  border-bottom: 2px solid rgba(0, 245, 255, 0.5) !important;
+}
+
+/* 表格斑马纹：极暗的透明白，而不是刺眼的纯白 */
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+/* 鼠标悬浮某一行时，触发扫描高亮效果 */
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
+  background-color: rgba(0, 245, 255, 0.15) !important;
+  box-shadow: inset 0 0 15px rgba(0, 245, 255, 0.3);
+  color: #fff !important;
+  text-shadow: 0 0 8px #00f5ff;
+}
+
+/* 干掉表格自带的前后伪元素白线 */
+.el-table::before,
+.el-table::after,
+.el-table__inner-wrapper::before {
+  display: none !important;
+}
+
+/* ==========================================
+   4. 分页器和输入框的赛博朋克化
+   ========================================== */
+.el-pagination button,
+.el-pagination .el-pager li,
+.el-input__wrapper {
+  background-color: rgba(10, 25, 50, 0.6) !important;
+  color: #00f5ff !important;
+  border: 1px solid rgba(0, 245, 255, 0.3) !important;
+  box-shadow: none !important;
+}
+
+.el-pagination .el-pager li.is-active {
+  background-color: rgba(0, 245, 255, 0.3) !important;
+  color: #fff !important;
+  box-shadow: 0 0 10px rgba(0, 245, 255, 0.8) !important;
+  border-color: #00f5ff !important;
+}
+
+.el-input__inner {
+  color: #00f5ff !important;
+}
