@@ -33,7 +33,6 @@ const handleLogout = () => {
         >
           <el-menu-item index="/admin/dataDashboard">📊 数据看板</el-menu-item>
           <el-menu-item index="/admin/dataReport">📄 数据简报</el-menu-item>
-          <el-menu-item index="/admin/siteManage">📍 站点管理</el-menu-item>
           <el-menu-item index="/admin/deviceManage">⚙️ 设备管理</el-menu-item>
 
           <el-sub-menu index="5">

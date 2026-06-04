@@ -27,11 +27,6 @@ const router = createRouter({
           component: () => import('../views/DataDashboard.vue'),
         },
         {
-          path: 'siteManage',
-          name: 'SiteManage',
-          component: () => import('../views/SiteManage.vue'),
-        },
-        {
           path: 'deviceManage',
           name: 'DeviceManage',
           component: () => import('../views/DeviceManage.vue'),
