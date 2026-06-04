@@ -103,11 +103,11 @@ const handleLogout = () => {
 
 /* 侧边栏复刻截图颜色 */
 .aside-menu {
-  /* 侧边栏深色半透明加上青色发光右边框 */
-  background: rgba(5, 15, 30, 0.8) !important;
-  border-right: 1px solid rgba(0, 245, 255, 0.2);
-  box-shadow: 2px 0 15px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(10px);
+  /* 侧边栏：白昼玻璃态 */
+  background: rgba(255, 255, 255, 0.8) !important;
+  border-right: 1px solid rgba(0, 162, 255, 0.2);
+  box-shadow: 2px 0 15px rgba(0, 100, 200, 0.05);
+  backdrop-filter: blur(15px);
 }
 
 .logo {
@@ -130,12 +130,10 @@ const handleLogout = () => {
 }
 
 .header {
-  /* 顶部导航栏机甲风 */
-  background: url('https://img.alicdn.com/tfs/TB1Z0zoQpXXXXbxXVXXXXXXXXXX-1920-80.png') no-repeat
-    center bottom / cover !important; /* 借用一个经典的大屏顶部背景条 */
-  background-color: rgba(5, 15, 30, 0.9) !important;
-  border-bottom: 1px solid rgba(0, 245, 255, 0.3);
-  box-shadow: 0 2px 20px rgba(0, 245, 255, 0.1);
+  /* 顶部栏：纯净白 */
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  border-bottom: 1px solid rgba(0, 162, 255, 0.2);
+  box-shadow: 0 2px 15px rgba(0, 100, 200, 0.05);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -143,14 +141,23 @@ const handleLogout = () => {
   position: sticky;
   top: 0;
   z-index: 100;
-  /* 让顶部的 Logo 也发光 */
-  text-shadow: 0 0 10px rgba(0, 245, 255, 0.8);
+  color: #1e293b;
 }
 
-/* 暗黑模式下，毛玻璃变成深色半透明 */
-html.dark .header {
-  background: rgba(30, 41, 59, 0.75) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+/* 左侧菜单文字变深，选中状态变成亮蓝色 */
+:deep(.el-menu) {
+  background-color: transparent !important;
+  border-right: none !important;
+}
+:deep(.el-menu-item),
+:deep(.el-sub-menu__title) {
+  color: #334155 !important;
+}
+:deep(.el-menu-item.is-active) {
+  background: linear-gradient(90deg, rgba(0, 162, 255, 0.1) 0%, transparent 100%) !important;
+  color: #00a2ff !important;
+  border-left: 3px solid #00a2ff;
+  font-weight: bold;
 }
 
 .breadcrumb {
