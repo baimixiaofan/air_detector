@@ -1,12 +1,45 @@
 <template>
   <div class="error-page">
-    <h1>404</h1>
-    <p>页面不存在</p>
-    <el-button type="primary" @click="$router.push('/dashboard')">返回首页</el-button>
+    <div class="error-card">
+      <div class="error-icon">
+        <el-icon :size="64" color="#b2bec3"><WarningFilled /></el-icon>
+      </div>
+      <h1 class="error-code">404</h1>
+      <p class="error-message">页面不存在</p>
+      <el-button type="primary" class="error-btn" @click="$router.push('/dashboard')">返回首页</el-button>
+    </div>
   </div>
 </template>
+
 <style scoped>
-.error-page { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
-h1 { font-size: 80px; color: #909399; margin: 0; }
-p { font-size: 18px; color: #909399; margin: 16px 0; }
+.error-page {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--page-bg);
+}
+.error-card {
+  text-align: center;
+}
+.error-icon {
+  margin-bottom: 20px;
+}
+.error-code {
+  font-size: 72px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+.error-message {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin: 0 0 32px;
+}
+.error-btn {
+  height: 44px;
+  padding: 0 32px;
+  font-size: 15px;
+  border-radius: var(--radius-sm);
+}
 </style>
