@@ -671,3 +671,1341 @@ def dashboard_diagnostics_detail(site_id):
             } for r in daily_trend]
         }
     })
+
+
+# ====================================================================
+# 设备管理 API
+# ====================================================================
+
+@admin_api.route('/devices', methods=['GET'])
+@require_admin_auth
+def get_devices():
+    """设备列表（支持分页、筛选）"""
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    keyword = request.args.get('keyword', '').strip()
+    status = request.args.get('status', '')
+    offset = (page - 1) * size
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            where = '1=1'
+            params = []
+            if keyword:
+                where += ' AND (d.name LIKE %s OR d.device_id LIKE %s)'
+                params.extend([f'%{keyword}%', f'%{keyword}%'])
+            if status:
+                where += ' AND d.status = %s'
+                params.append(int(status))
+
+            cur.execute(f'SELECT COUNT(*) AS cnt FROM devices d WHERE {where}', params)
+            total = cur.fetchone()['cnt']
+
+            cur.execute(
+                f'SELECT d.* FROM devices d WHERE {where} ORDER BY d.id DESC LIMIT %s OFFSET %s',
+                params + [size, offset]
+            )
+            devices = cur.fetchall()
+
+            # 获取每个设备的站点信息
+            for d in devices:
+                cur.execute(
+                    'SELECT s.id AS site_id, s.name AS site_name FROM site_devices sd '
+                    'JOIN sites s ON s.id = sd.site_id WHERE sd.device_id = %s',
+                    (d.get('device_id', d.get('id')),)
+                )
+                site = cur.fetchone()
+                d['site'] = site if site else None
+    finally:
+        conn.close()
+
+    # 获取在线状态（从 MongoDB 最近 5 分钟有数据）
+    try:
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+        five_min_ago = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        online_ids = set(coll.distinct('device_id', {'timestamp': {'$gte': five_min_ago}}))
+        for d in devices:
+            d['online'] = d.get('device_id', d.get('id')) in online_ids
+    except Exception:
+        for d in devices:
+            d['online'] = False
+
+    return jsonify({'code': 200, 'data': {'list': devices, 'total': total, 'page': page, 'size': size}})
+
+
+@admin_api.route('/devices/<int:device_pk_id>', methods=['GET'])
+@require_admin_auth
+def get_device_detail(device_pk_id):
+    """设备详情"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM devices WHERE id=%s', (device_pk_id,))
+            device = cur.fetchone()
+            if not device:
+                return jsonify({'code': 404, 'msg': '设备不存在'}), 404
+            cur.execute(
+                'SELECT s.id AS site_id, s.name AS site_name FROM site_devices sd '
+                'JOIN sites s ON s.id = sd.site_id WHERE sd.device_id = %s',
+                (device.get('device_id', device.get('id')),)
+            )
+            device['site'] = cur.fetchone()
+    finally:
+        conn.close()
+
+    # 获取最新数据
+    try:
+        db = _get_mongo()
+        doc = db[MONGO_COLLECTION].find_one(
+            {'device_id': device.get('device_id', device.get('id'))},
+            sort=[('timestamp', pymongo.DESCENDING)]
+        )
+        if doc:
+            device['latest_data'] = doc.get('data', {})
+            device['latest_timestamp'] = doc.get('timestamp')
+    except Exception:
+        pass
+
+    return jsonify({'code': 200, 'data': device})
+
+
+@admin_api.route('/devices', methods=['POST'])
+@require_admin_auth
+def create_device():
+    """新增设备"""
+    body = request.json or {}
+    name = body.get('name', '').strip()
+    device_id = body.get('device_id', '').strip()
+    if not name or not device_id:
+        return jsonify({'code': 400, 'msg': '设备名称和设备ID不能为空'}), 400
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM devices WHERE device_id=%s', (device_id,))
+            if cur.fetchone():
+                return jsonify({'code': 400, 'msg': '设备ID已存在'}), 400
+            cur.execute(
+                'INSERT INTO devices (name, device_id, status) VALUES (%s, %s, %s)',
+                (name, device_id, body.get('status', 1))
+            )
+            new_id = cur.lastrowid
+            # 绑定站点
+            site_id = body.get('site_id')
+            if site_id:
+                cur.execute('INSERT IGNORE INTO site_devices (site_id, device_id) VALUES (%s, %s)', (site_id, device_id))
+        conn.commit()
+        _log_action('新增设备', 'device', new_id, {'name': name, 'device_id': device_id})
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'id': new_id}, 'msg': '设备已添加'})
+
+
+@admin_api.route('/devices/<int:device_pk_id>', methods=['PUT'])
+@require_admin_auth
+def update_device(device_pk_id):
+    """更新设备"""
+    body = request.json or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM devices WHERE id=%s', (device_pk_id,))
+            device = cur.fetchone()
+            if not device:
+                return jsonify({'code': 404, 'msg': '设备不存在'}), 404
+
+            fields = []
+            params = []
+            for key in ('name', 'status', 'device_id'):
+                if key in body:
+                    fields.append(f'{key}=%s')
+                    params.append(body[key])
+            if fields:
+                params.append(device_pk_id)
+                cur.execute(f'UPDATE devices SET {", ".join(fields)} WHERE id=%s', params)
+
+            # 更新站点绑定
+            if 'site_id' in body:
+                old_did = device.get('device_id', device.get('id'))
+                cur.execute('DELETE FROM site_devices WHERE device_id=%s', (old_did,))
+                if body['site_id']:
+                    cur.execute('INSERT IGNORE INTO site_devices (site_id, device_id) VALUES (%s, %s)', (body['site_id'], old_did))
+        conn.commit()
+        _log_action('更新设备', 'device', device_pk_id, body)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '设备已更新'})
+
+
+@admin_api.route('/devices/<int:device_pk_id>', methods=['DELETE'])
+@require_admin_auth
+def delete_device(device_pk_id):
+    """删除设备"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT device_id FROM devices WHERE id=%s', (device_pk_id,))
+            device = cur.fetchone()
+            if not device:
+                return jsonify({'code': 404, 'msg': '设备不存在'}), 404
+            cur.execute('DELETE FROM devices WHERE id=%s', (device_pk_id,))
+            cur.execute('DELETE FROM site_devices WHERE device_id=%s', (device['device_id'],))
+        conn.commit()
+        _log_action('删除设备', 'device', device_pk_id)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '设备已删除'})
+
+
+@admin_api.route('/devices/<device_id>/status', methods=['GET'])
+@require_admin_auth
+def get_device_status(device_id):
+    """设备在线状态"""
+    online = False
+    try:
+        db = _get_mongo()
+        doc = db[MONGO_COLLECTION].find_one(
+            {'device_id': device_id},
+            sort=[('timestamp', pymongo.DESCENDING)]
+        )
+        if doc:
+            ts = doc.get('timestamp', '')
+            # 判断最近 5 分钟是否有数据
+            if ts:
+                from datetime import timedelta
+                last_time = datetime.strptime(ts[:19], '%Y-%m-%d %H:%M:%S')
+                online = (datetime.now() - last_time) < timedelta(minutes=5)
+    except Exception:
+        pass
+
+    return jsonify({'code': 200, 'data': {'device_id': device_id, 'online': online}})
+
+
+@admin_api.route('/devices/<device_id>/realtime', methods=['GET'])
+@require_admin_auth
+def get_device_realtime(device_id):
+    """设备实时数据"""
+    try:
+        db = _get_mongo()
+        doc = db[MONGO_COLLECTION].find_one(
+            {'device_id': device_id},
+            sort=[('timestamp', pymongo.DESCENDING)]
+        )
+        if not doc:
+            return jsonify({'code': 404, 'msg': '暂无数据'}), 404
+        return jsonify({
+            'code': 200,
+            'data': {
+                'device_id': device_id,
+                'data': doc.get('data', {}),
+                'timestamp': doc.get('timestamp'),
+                'server_time': doc.get('server_time')
+            }
+        })
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+# ====================================================================
+# 站点管理 API
+# ====================================================================
+
+@admin_api.route('/sites', methods=['GET'])
+@require_admin_auth
+def get_sites():
+    """站点列表"""
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    keyword = request.args.get('keyword', '').strip()
+    offset = (page - 1) * size
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            where = '1=1'
+            params = []
+            if keyword:
+                where += ' AND (name LIKE %s OR code LIKE %s OR area LIKE %s)'
+                params.extend([f'%{keyword}%'] * 3)
+
+            cur.execute(f'SELECT COUNT(*) AS cnt FROM sites WHERE {where}', params)
+            total = cur.fetchone()['cnt']
+            cur.execute(f'SELECT * FROM sites WHERE {where} ORDER BY id DESC LIMIT %s OFFSET %s', params + [size, offset])
+            sites = cur.fetchall()
+
+            # 每个站点绑定的设备数
+            for s in sites:
+                cur.execute('SELECT COUNT(*) AS cnt FROM site_devices WHERE site_id=%s', (s['id'],))
+                s['device_count'] = cur.fetchone()['cnt']
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'list': sites, 'total': total, 'page': page, 'size': size}})
+
+
+@admin_api.route('/sites/<int:site_id>', methods=['GET'])
+@require_admin_auth
+def get_site_detail(site_id):
+    """站点详情"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM sites WHERE id=%s', (site_id,))
+            site = cur.fetchone()
+            if not site:
+                return jsonify({'code': 404, 'msg': '站点不存在'}), 404
+            cur.execute('SELECT device_id FROM site_devices WHERE site_id=%s', (site_id,))
+            site['devices'] = [r['device_id'] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': site})
+
+
+@admin_api.route('/sites', methods=['POST'])
+@require_admin_auth
+def create_site():
+    """新增站点"""
+    body = request.json or {}
+    name = body.get('name', '').strip()
+    code = body.get('code', '').strip()
+    if not name or not code:
+        return jsonify({'code': 400, 'msg': '站点名称和编号不能为空'}), 400
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM sites WHERE code=%s', (code,))
+            if cur.fetchone():
+                return jsonify({'code': 400, 'msg': '站点编号已存在'}), 400
+            cur.execute(
+                'INSERT INTO sites (name, code, area, site_type, address, longitude, latitude, status) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s, %s)',
+                (name, code, body.get('area', ''), body.get('site_type', 'office'),
+                 body.get('address', ''), body.get('longitude'), body.get('latitude'), body.get('status', 1))
+            )
+            new_id = cur.lastrowid
+        conn.commit()
+        _log_action('新增站点', 'site', new_id, {'name': name, 'code': code})
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'id': new_id}, 'msg': '站点已添加'})
+
+
+@admin_api.route('/sites/<int:site_id>', methods=['PUT'])
+@require_admin_auth
+def update_site(site_id):
+    """更新站点"""
+    body = request.json or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM sites WHERE id=%s', (site_id,))
+            if not cur.fetchone():
+                return jsonify({'code': 404, 'msg': '站点不存在'}), 404
+
+            fields = []
+            params = []
+            for key in ('name', 'code', 'area', 'site_type', 'address', 'longitude', 'latitude', 'status'):
+                if key in body:
+                    fields.append(f'{key}=%s')
+                    params.append(body[key])
+            if fields:
+                params.append(site_id)
+                cur.execute(f'UPDATE sites SET {", ".join(fields)} WHERE id=%s', params)
+        conn.commit()
+        _log_action('更新站点', 'site', site_id, body)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '站点已更新'})
+
+
+@admin_api.route('/sites/<int:site_id>', methods=['DELETE'])
+@require_admin_auth
+def delete_site(site_id):
+    """删除站点"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM sites WHERE id=%s', (site_id,))
+            if not cur.fetchone():
+                return jsonify({'code': 404, 'msg': '站点不存在'}), 404
+            cur.execute('DELETE FROM sites WHERE id=%s', (site_id,))
+            cur.execute('DELETE FROM site_devices WHERE site_id=%s', (site_id,))
+        conn.commit()
+        _log_action('删除站点', 'site', site_id)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '站点已删除'})
+
+
+@admin_api.route('/sites/<int:site_id>/devices', methods=['GET'])
+@require_admin_auth
+def get_site_devices(site_id):
+    """站点下设备列表"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT sd.device_id, sd.created_at AS bind_time, d.name AS device_name, d.status '
+                'FROM site_devices sd LEFT JOIN devices d ON d.device_id = sd.device_id '
+                'WHERE sd.site_id = %s', (site_id,)
+            )
+            devices = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': devices})
+
+
+@admin_api.route('/sites/<int:site_id>/devices', methods=['POST'])
+@require_admin_auth
+def bind_site_device(site_id):
+    """绑定设备到站点"""
+    body = request.json or {}
+    device_id = body.get('device_id', '').strip()
+    if not device_id:
+        return jsonify({'code': 400, 'msg': '设备ID不能为空'}), 400
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM sites WHERE id=%s', (site_id,))
+            if not cur.fetchone():
+                return jsonify({'code': 404, 'msg': '站点不存在'}), 404
+            cur.execute('SELECT id FROM site_devices WHERE site_id=%s AND device_id=%s', (site_id, device_id))
+            if cur.fetchone():
+                return jsonify({'code': 400, 'msg': '设备已绑定'}), 400
+            cur.execute('INSERT INTO site_devices (site_id, device_id) VALUES (%s, %s)', (site_id, device_id))
+        conn.commit()
+        _log_action('绑定设备', 'site_device', site_id, {'device_id': device_id})
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '设备已绑定'})
+
+
+@admin_api.route('/sites/<int:site_id>/devices/<device_id>', methods=['DELETE'])
+@require_admin_auth
+def unbind_site_device(site_id, device_id):
+    """解绑设备"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM site_devices WHERE site_id=%s AND device_id=%s', (site_id, device_id))
+        conn.commit()
+        _log_action('解绑设备', 'site_device', site_id, {'device_id': device_id})
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '设备已解绑'})
+
+
+# ====================================================================
+# 告警管理 API
+# ====================================================================
+
+@admin_api.route('/alerts/records', methods=['GET'])
+@require_admin_auth
+def get_alert_records():
+    """告警记录列表"""
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    status = request.args.get('status', '')
+    severity = request.args.get('severity', '')
+    offset = (page - 1) * size
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            where = '1=1'
+            params = []
+            if status:
+                where += ' AND status=%s'
+                params.append(status)
+            if severity:
+                where += ' AND severity=%s'
+                params.append(severity)
+
+            cur.execute(f'SELECT COUNT(*) AS cnt FROM alert_records WHERE {where}', params)
+            total = cur.fetchone()['cnt']
+            cur.execute(
+                f'SELECT * FROM alert_records WHERE {where} ORDER BY created_at DESC LIMIT %s OFFSET %s',
+                params + [size, offset]
+            )
+            records = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'list': records, 'total': total, 'page': page, 'size': size}})
+
+
+@admin_api.route('/alerts/rules', methods=['GET'])
+@require_admin_auth
+def get_alert_rules():
+    """告警规则列表"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM alert_rules ORDER BY id DESC')
+            rules = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': rules})
+
+
+@admin_api.route('/alerts/rules', methods=['POST'])
+@require_admin_auth
+def create_alert_rule():
+    """新增告警规则"""
+    body = request.json or {}
+    name = body.get('name', '').strip()
+    metric = body.get('metric', '').strip()
+    if not name or not metric:
+        return jsonify({'code': 400, 'msg': '规则名称和指标不能为空'}), 400
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO alert_rules (name, metric, operator, threshold, severity, site_id, enabled) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s)',
+                (name, metric, body.get('operator', '>'), body.get('threshold', 0),
+                 body.get('severity', 'warning'), body.get('site_id'), body.get('enabled', 1))
+            )
+            new_id = cur.lastrowid
+        conn.commit()
+        _log_action('新增告警规则', 'alert_rule', new_id, {'name': name})
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'id': new_id}, 'msg': '规则已添加'})
+
+
+@admin_api.route('/alerts/rules/<int:rule_id>', methods=['PUT'])
+@require_admin_auth
+def update_alert_rule(rule_id):
+    """更新告警规则"""
+    body = request.json or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM alert_rules WHERE id=%s', (rule_id,))
+            if not cur.fetchone():
+                return jsonify({'code': 404, 'msg': '规则不存在'}), 404
+
+            fields = []
+            params = []
+            for key in ('name', 'metric', 'operator', 'threshold', 'severity', 'site_id', 'enabled'):
+                if key in body:
+                    fields.append(f'{key}=%s')
+                    params.append(body[key])
+            if fields:
+                params.append(rule_id)
+                cur.execute(f'UPDATE alert_rules SET {", ".join(fields)} WHERE id=%s', params)
+        conn.commit()
+        _log_action('更新告警规则', 'alert_rule', rule_id, body)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '规则已更新'})
+
+
+@admin_api.route('/alerts/rules/<int:rule_id>', methods=['DELETE'])
+@require_admin_auth
+def delete_alert_rule(rule_id):
+    """删除告警规则"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM alert_rules WHERE id=%s', (rule_id,))
+        conn.commit()
+        _log_action('删除告警规则', 'alert_rule', rule_id)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '规则已删除'})
+
+
+@admin_api.route('/alerts/records/<int:record_id>/acknowledge', methods=['POST'])
+@require_admin_auth
+def acknowledge_alert(record_id):
+    """确认告警"""
+    user = g.current_user
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE alert_records SET status='acknowledged', acknowledged_by=%s, acknowledged_at=NOW() WHERE id=%s AND status='pending'",
+                (user.get('username'), record_id)
+            )
+            if cur.rowcount == 0:
+                return jsonify({'code': 400, 'msg': '告警不存在或已被处理'}), 400
+        conn.commit()
+        _log_action('确认告警', 'alert_record', record_id)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '告警已确认'})
+
+
+@admin_api.route('/alerts/records/<int:record_id>/resolve', methods=['POST'])
+@require_admin_auth
+def resolve_alert(record_id):
+    """解决告警"""
+    user = g.current_user
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE alert_records SET status='resolved', resolved_by=%s, resolved_at=NOW() WHERE id=%s AND status IN ('pending','acknowledged')",
+                (user.get('username'), record_id)
+            )
+            if cur.rowcount == 0:
+                return jsonify({'code': 400, 'msg': '告警不存在或已解决'}), 400
+        conn.commit()
+        _log_action('解决告警', 'alert_record', record_id)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '告警已解决'})
+
+
+# ====================================================================
+# 历史数据 API
+# ====================================================================
+
+@admin_api.route('/history/query', methods=['GET'])
+@require_admin_auth
+def query_history():
+    """历史数据查询"""
+    device_id = request.args.get('device_id', '')
+    start_time = request.args.get('start_time', '')
+    end_time = request.args.get('end_time', '')
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 50))
+
+    try:
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+
+        query = {}
+        if device_id:
+            query['device_id'] = device_id
+        if start_time or end_time:
+            ts_query = {}
+            if start_time:
+                ts_query['$gte'] = start_time
+            if end_time:
+                ts_query['$lte'] = end_time
+            query['timestamp'] = ts_query
+
+        total = coll.count_documents(query)
+        skip = (page - 1) * size
+        docs = list(coll.find(query, {'_id': 0}).sort('timestamp', -1).skip(skip).limit(size))
+
+        return jsonify({'code': 200, 'data': {'list': docs, 'total': total, 'page': page, 'size': size}})
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+@admin_api.route('/history/comparison', methods=['GET'])
+@require_admin_auth
+def get_comparison_data():
+    """多设备/多时段对比"""
+    device_ids = request.args.get('device_ids', '')
+    start_time = request.args.get('start_time', '')
+    end_time = request.args.get('end_time', '')
+
+    if not device_ids:
+        return jsonify({'code': 400, 'msg': '请选择对比设备'}), 400
+
+    id_list = [d.strip() for d in device_ids.split(',') if d.strip()]
+
+    try:
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+
+        results = {}
+        for did in id_list:
+            query = {'device_id': did}
+            if start_time or end_time:
+                ts_query = {}
+                if start_time:
+                    ts_query['$gte'] = start_time
+                if end_time:
+                    ts_query['$lte'] = end_time
+                query['timestamp'] = ts_query
+
+            pipeline = [
+                {'$match': query},
+                {'$group': {
+                    '_id': {'$substr': ['$timestamp', 0, 13]},
+                    'avg_aqi': {'$avg': '$data.AQI'},
+                    'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                    'avg_no2': {'$avg': '$data.NO₂'},
+                    'avg_so2': {'$avg': '$data.SO₂'},
+                    'avg_o3': {'$avg': '$data.O₃'},
+                    'count': {'$sum': 1}
+                }},
+                {'$sort': {'_id': 1}}
+            ]
+            data = list(coll.aggregate(pipeline))
+            results[did] = [{
+                'hour': r['_id'],
+                'avg_aqi': round(r['avg_aqi'], 1) if r['avg_aqi'] else 0,
+                'avg_pm25': round(r['avg_pm25'], 1) if r['avg_pm25'] else 0,
+                'count': r['count']
+            } for r in data]
+
+        return jsonify({'code': 200, 'data': results})
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+@admin_api.route('/history/report', methods=['GET'])
+@require_admin_auth
+def get_report_data():
+    """统计报表"""
+    device_id = request.args.get('device_id', '')
+    days = int(request.args.get('days', 7))
+
+    try:
+        from datetime import timedelta
+        since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+
+        query = {'timestamp': {'$gte': since}}
+        if device_id:
+            query['device_id'] = device_id
+
+        pipeline = [
+            {'$match': query},
+            {'$group': {
+                '_id': {'$substr': ['$timestamp', 0, 10]},
+                'avg_aqi': {'$avg': '$data.AQI'},
+                'max_aqi': {'$max': '$data.AQI'},
+                'min_aqi': {'$min': '$data.AQI'},
+                'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                'avg_no2': {'$avg': '$data.NO₂'},
+                'avg_so2': {'$avg': '$data.SO₂'},
+                'avg_o3': {'$avg': '$data.O₃'},
+                'count': {'$sum': 1}
+            }},
+            {'$sort': {'_id': 1}}
+        ]
+        data = list(coll.aggregate(pipeline))
+
+        return jsonify({
+            'code': 200,
+            'data': [{
+                'date': r['_id'],
+                'avg_aqi': round(r['avg_aqi'], 1),
+                'max_aqi': round(r['max_aqi'], 1),
+                'min_aqi': round(r['min_aqi'], 1),
+                'avg_pm25': round(r['avg_pm25'], 1),
+                'avg_no2': round(r.get('avg_no2', 0) or 0, 1),
+                'avg_so2': round(r.get('avg_so2', 0) or 0, 1),
+                'avg_o3': round(r.get('avg_o3', 0) or 0, 1),
+                'count': r['count']
+            } for r in data]
+        })
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+@admin_api.route('/history/report/export', methods=['GET'])
+@require_admin_auth
+def export_report():
+    """导出报表 CSV"""
+    import csv
+    import io
+    from flask import Response
+
+    device_id = request.args.get('device_id', '')
+    days = int(request.args.get('days', 7))
+
+    try:
+        from datetime import timedelta
+        since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+
+        query = {'timestamp': {'$gte': since}}
+        if device_id:
+            query['device_id'] = device_id
+
+        docs = list(coll.find(query, {'_id': 0}).sort('timestamp', -1).limit(10000))
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['时间', '设备ID', 'AQI', 'PM2.5', 'NO2', 'SO2', 'O3'])
+
+        for doc in docs:
+            data = doc.get('data', {})
+            writer.writerow([
+                doc.get('timestamp', ''),
+                doc.get('device_id', ''),
+                data.get('AQI', ''),
+                data.get('PM₂.₅', ''),
+                data.get('NO₂', ''),
+                data.get('SO₂', ''),
+                data.get('O₃', '')
+            ])
+
+        csv_content = output.getvalue()
+        output.close()
+
+        return Response(
+            '﻿' + csv_content,
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=air_quality_report_{datetime.now().strftime("%Y%m%d")}.csv'}
+        )
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+# ====================================================================
+# 排行榜 API
+# ====================================================================
+
+@admin_api.route('/rankings', methods=['GET'])
+@require_admin_auth
+def get_rankings():
+    """设备/站点 AQI 排行"""
+    days = int(request.args.get('days', 7))
+    limit = int(request.args.get('limit', 20))
+
+    try:
+        from datetime import timedelta
+        since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+
+        pipeline = [
+            {'$match': {'timestamp': {'$gte': since}}},
+            {'$group': {
+                '_id': '$device_id',
+                'avg_aqi': {'$avg': '$data.AQI'},
+                'max_aqi': {'$max': '$data.AQI'},
+                'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                'count': {'$sum': 1}
+            }},
+            {'$sort': {'avg_aqi': -1}},
+            {'$limit': limit}
+        ]
+        results = list(coll.aggregate(pipeline))
+
+        rankings = [{
+            'rank': i + 1,
+            'device_id': r['_id'],
+            'avg_aqi': round(r['avg_aqi'], 1),
+            'max_aqi': round(r['max_aqi'], 1),
+            'avg_pm25': round(r['avg_pm25'], 1),
+            'record_count': r['count']
+        } for i, r in enumerate(results)]
+
+        return jsonify({'code': 200, 'data': rankings})
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+@admin_api.route('/rankings/trend', methods=['GET'])
+@require_admin_auth
+def get_ranking_trend():
+    """排行变化趋势"""
+    days = int(request.args.get('days', 7))
+    device_id = request.args.get('device_id', '')
+
+    try:
+        from datetime import timedelta
+        since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+
+        match = {'timestamp': {'$gte': since}}
+        if device_id:
+            match['device_id'] = device_id
+
+        pipeline = [
+            {'$match': match},
+            {'$group': {
+                '_id': {
+                    'date': {'$substr': ['$timestamp', 0, 10]},
+                    'device_id': '$device_id'
+                },
+                'avg_aqi': {'$avg': '$data.AQI'}
+            }},
+            {'$sort': {'_id.date': 1}}
+        ]
+        results = list(coll.aggregate(pipeline))
+
+        # 按日期分组
+        trend = {}
+        for r in results:
+            date = r['_id']['date']
+            if date not in trend:
+                trend[date] = []
+            trend[date].append({
+                'device_id': r['_id']['device_id'],
+                'avg_aqi': round(r['avg_aqi'], 1)
+            })
+
+        # 每天按 AQI 排序
+        for date in trend:
+            trend[date].sort(key=lambda x: x['avg_aqi'], reverse=True)
+            for i, item in enumerate(trend[date]):
+                item['rank'] = i + 1
+
+        return jsonify({'code': 200, 'data': trend})
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+# ====================================================================
+# 智能报告 API
+# ====================================================================
+
+@admin_api.route('/reports', methods=['GET'])
+@require_admin_auth
+def get_reports():
+    """报告列表"""
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    report_type = request.args.get('report_type', '')
+    offset = (page - 1) * size
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            where = '1=1'
+            params = []
+            if report_type:
+                where += ' AND report_type=%s'
+                params.append(report_type)
+
+            cur.execute(f'SELECT COUNT(*) AS cnt FROM intelligence_reports WHERE {where}', params)
+            total = cur.fetchone()['cnt']
+            cur.execute(
+                f'SELECT * FROM intelligence_reports WHERE {where} ORDER BY created_at DESC LIMIT %s OFFSET %s',
+                params + [size, offset]
+            )
+            reports = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'list': reports, 'total': total, 'page': page, 'size': size}})
+
+
+@admin_api.route('/reports/<int:report_id>', methods=['GET'])
+@require_admin_auth
+def get_report_detail(report_id):
+    """报告详情"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM intelligence_reports WHERE id=%s', (report_id,))
+            report = cur.fetchone()
+            if not report:
+                return jsonify({'code': 404, 'msg': '报告不存在'}), 404
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': report})
+
+
+@admin_api.route('/reports/generate', methods=['POST'])
+@require_admin_auth
+def generate_report():
+    """生成智能报告"""
+    body = request.json or {}
+    report_type = body.get('report_type', 'daily')
+    site_id = body.get('site_id')
+
+    title_map = {'daily': '日报', 'weekly': '周报', 'monthly': '月报'}
+    title = f"空气质量{title_map.get(report_type, report_type)}报告 - {datetime.now().strftime('%Y-%m-%d')}"
+
+    # 获取数据用于生成报告
+    try:
+        from datetime import timedelta
+        days_map = {'daily': 1, 'weekly': 7, 'monthly': 30}
+        days = days_map.get(report_type, 1)
+        since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+
+        db = _get_mongo()
+        coll = db[MONGO_COLLECTION]
+
+        match = {'timestamp': {'$gte': since}}
+        if site_id:
+            # 获取站点绑定的设备
+            conn = _get_mysql()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute('SELECT device_id FROM site_devices WHERE site_id=%s', (site_id,))
+                    devices = [r['device_id'] for r in cur.fetchall()]
+            finally:
+                conn.close()
+            if devices:
+                match['device_id'] = {'$in': devices}
+
+        pipeline = [
+            {'$match': match},
+            {'$group': {
+                '_id': None,
+                'avg_aqi': {'$avg': '$data.AQI'},
+                'max_aqi': {'$max': '$data.AQI'},
+                'min_aqi': {'$min': '$data.AQI'},
+                'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                'count': {'$sum': 1}
+            }}
+        ]
+        stats = list(coll.aggregate(pipeline))
+        stats = stats[0] if stats else {}
+
+        # 用 DeepSeek 生成报告内容
+        prompt = f"""请生成一份空气质量{title_map.get(report_type, report_type)}报告，包含以下数据：
+- 平均AQI：{round(stats.get('avg_aqi', 0), 1)}
+- 最高AQI：{round(stats.get('max_aqi', 0), 1)}
+- 最低AQI：{round(stats.get('min_aqi', 0), 1)}
+- 平均PM2.5：{round(stats.get('avg_pm25', 0), 1)}
+- 数据条数：{stats.get('count', 0)}
+
+请用简洁专业的语言，包含：总体评价、主要问题、改善建议。控制在300字以内。"""
+
+        ai_content = _call_deepseek(prompt, max_tokens=500)
+        content = ai_content or f"本{title_map.get(report_type, '')}期间，平均AQI为{round(stats.get('avg_aqi', 0), 1)}，PM2.5均值为{round(stats.get('avg_pm25', 0), 1)}。"
+
+    except Exception as e:
+        content = f"报告生成时发生错误: {str(e)}"
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO intelligence_reports (title, report_type, site_id, content, summary, generated_by, status) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s)',
+                (title, report_type, site_id, content, content[:200], 'ai', 'completed')
+            )
+            new_id = cur.lastrowid
+        conn.commit()
+        _log_action('生成报告', 'report', new_id, {'type': report_type})
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'id': new_id, 'title': title}, 'msg': '报告已生成'})
+
+
+@admin_api.route('/reports/<int:report_id>', methods=['DELETE'])
+@require_admin_auth
+def delete_report(report_id):
+    """删除报告"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM intelligence_reports WHERE id=%s', (report_id,))
+        conn.commit()
+        _log_action('删除报告', 'report', report_id)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '报告已删除'})
+
+
+# ====================================================================
+# 系统管理 API
+# ====================================================================
+
+@admin_api.route('/company-info', methods=['GET'])
+@require_admin_auth
+def get_company_info():
+    """企业信息"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM company_info ORDER BY id LIMIT 1')
+            info = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not info:
+        return jsonify({'code': 200, 'data': {}})
+
+    return jsonify({'code': 200, 'data': info})
+
+
+@admin_api.route('/company-info', methods=['PUT'])
+@require_admin_auth
+def update_company_info():
+    """更新企业信息"""
+    body = request.json or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM company_info ORDER BY id LIMIT 1')
+            existing = cur.fetchone()
+            if existing:
+                fields = []
+                params = []
+                for key in ('name', 'logo_url', 'address', 'contact_name', 'contact_phone', 'contact_email', 'description'):
+                    if key in body:
+                        fields.append(f'{key}=%s')
+                        params.append(body[key])
+                if fields:
+                    params.append(existing['id'])
+                    cur.execute(f'UPDATE company_info SET {", ".join(fields)} WHERE id=%s', params)
+            else:
+                cur.execute(
+                    'INSERT INTO company_info (name, logo_url, address, contact_name, contact_phone, contact_email, description) '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s)',
+                    (body.get('name', ''), body.get('logo_url', ''), body.get('address', ''),
+                     body.get('contact_name', ''), body.get('contact_phone', ''),
+                     body.get('contact_email', ''), body.get('description', ''))
+                )
+        conn.commit()
+        _log_action('更新企业信息', 'company_info', 1, body)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '企业信息已更新'})
+
+
+@admin_api.route('/users', methods=['GET'])
+@require_admin_auth
+def get_admin_users():
+    """管理员列表"""
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    offset = (page - 1) * size
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) AS cnt FROM admin_users')
+            total = cur.fetchone()['cnt']
+            cur.execute(
+                'SELECT id, username, display_name, role, status, last_login, created_at '
+                'FROM admin_users ORDER BY id DESC LIMIT %s OFFSET %s',
+                (size, offset)
+            )
+            users = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'list': users, 'total': total, 'page': page, 'size': size}})
+
+
+@admin_api.route('/users', methods=['POST'])
+@require_admin_auth
+@require_role('admin')
+def create_admin_user():
+    """新增管理员"""
+    from werkzeug.security import generate_password_hash
+
+    body = request.json or {}
+    username = body.get('username', '').strip()
+    password = body.get('password', '').strip()
+    if not username or not password:
+        return jsonify({'code': 400, 'msg': '用户名和密码不能为空'}), 400
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM admin_users WHERE username=%s', (username,))
+            if cur.fetchone():
+                return jsonify({'code': 400, 'msg': '用户名已存在'}), 400
+            cur.execute(
+                'INSERT INTO admin_users (username, password_hash, display_name, role, status) VALUES (%s, %s, %s, %s, %s)',
+                (username, generate_password_hash(password),
+                 body.get('display_name', username), body.get('role', 'viewer'), body.get('status', 1))
+            )
+            new_id = cur.lastrowid
+        conn.commit()
+        _log_action('新增管理员', 'admin_user', new_id, {'username': username})
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'id': new_id}, 'msg': '管理员已添加'})
+
+
+@admin_api.route('/users/<int:user_id>', methods=['PUT'])
+@require_admin_auth
+@require_role('admin')
+def update_admin_user(user_id):
+    """更新管理员"""
+    from werkzeug.security import generate_password_hash
+
+    body = request.json or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM admin_users WHERE id=%s', (user_id,))
+            if not cur.fetchone():
+                return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+
+            fields = []
+            params = []
+            for key in ('display_name', 'role', 'status'):
+                if key in body:
+                    fields.append(f'{key}=%s')
+                    params.append(body[key])
+            if 'password' in body and body['password']:
+                fields.append('password_hash=%s')
+                params.append(generate_password_hash(body['password']))
+            if fields:
+                params.append(user_id)
+                cur.execute(f'UPDATE admin_users SET {", ".join(fields)} WHERE id=%s', params)
+        conn.commit()
+        _log_action('更新管理员', 'admin_user', user_id, body)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '管理员已更新'})
+
+
+@admin_api.route('/users/<int:user_id>', methods=['DELETE'])
+@require_admin_auth
+@require_role('admin')
+def delete_admin_user(user_id):
+    """删除管理员"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id, username FROM admin_users WHERE id=%s', (user_id,))
+            user = cur.fetchone()
+            if not user:
+                return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+            if user['username'] == 'admin':
+                return jsonify({'code': 400, 'msg': '不能删除默认管理员'}), 400
+            cur.execute('DELETE FROM admin_users WHERE id=%s', (user_id,))
+        conn.commit()
+        _log_action('删除管理员', 'admin_user', user_id)
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'msg': '管理员已删除'})
+
+
+@admin_api.route('/operation-logs', methods=['GET'])
+@require_admin_auth
+def get_operation_logs():
+    """操作日志"""
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    offset = (page - 1) * size
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) AS cnt FROM admin_operation_logs')
+            total = cur.fetchone()['cnt']
+            cur.execute(
+                'SELECT * FROM admin_operation_logs ORDER BY created_at DESC LIMIT %s OFFSET %s',
+                (size, offset)
+            )
+            logs = cur.fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({'code': 200, 'data': {'list': logs, 'total': total, 'page': page, 'size': size}})
+
+
+# ====================================================================
+# 监控扩展 API
+# ====================================================================
+
+@admin_api.route('/dashboard/realtime/<device_id>', methods=['GET'])
+@require_admin_auth
+def get_realtime_by_device(device_id):
+    """单设备实时数据"""
+    try:
+        db = _get_mongo()
+        doc = db[MONGO_COLLECTION].find_one(
+            {'device_id': device_id},
+            sort=[('timestamp', pymongo.DESCENDING)]
+        )
+        if not doc:
+            return jsonify({'code': 404, 'msg': '暂无数据'}), 404
+
+        data = doc.get('data', {})
+        return jsonify({
+            'code': 200,
+            'data': {
+                'device_id': device_id,
+                'aqi': data.get('AQI'),
+                'pm25': data.get('PM₂.₅'),
+                'no2': data.get('NO₂'),
+                'so2': data.get('SO₂'),
+                'o3': data.get('O₃'),
+                'timestamp': doc.get('timestamp'),
+                'server_time': doc.get('server_time')
+            }
+        })
+    except Exception as e:
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
+@admin_api.route('/dashboard/map', methods=['GET'])
+@require_admin_auth
+def get_map_data():
+    """地图数据（站点坐标 + 实时 AQI）"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT id, name, code, area, longitude, latitude, status FROM sites WHERE status=1')
+            sites = cur.fetchall()
+    finally:
+        conn.close()
+
+    db = _get_mongo()
+    coll = db[MONGO_COLLECTION]
+
+    map_data = []
+    for site in sites:
+        # 获取站点绑定的设备
+        conn2 = _get_mysql()
+        try:
+            with conn2.cursor() as cur:
+                cur.execute('SELECT device_id FROM site_devices WHERE site_id=%s', (site['id'],))
+                devices = [r['device_id'] for r in cur.fetchall()]
+        finally:
+            conn2.close()
+
+        latest = None
+        if devices:
+            try:
+                doc = coll.find_one(
+                    {'device_id': {'$in': devices}},
+                    sort=[('timestamp', pymongo.DESCENDING)]
+                )
+                if doc:
+                    latest = doc.get('data', {})
+            except Exception:
+                pass
+
+        map_data.append({
+            'site_id': site['id'],
+            'name': site['name'],
+            'code': site['code'],
+            'area': site['area'],
+            'longitude': float(site['longitude']) if site['longitude'] else None,
+            'latitude': float(site['latitude']) if site['latitude'] else None,
+            'aqi': latest.get('AQI') if latest else None,
+            'pm25': latest.get('PM₂.₅') if latest else None,
+            'device_count': len(devices)
+        })
+
+    return jsonify({'code': 200, 'data': map_data})

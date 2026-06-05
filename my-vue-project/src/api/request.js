@@ -9,7 +9,7 @@ const request = axios.create({
 
 // 请求拦截器：自动带 token
 request.interceptors.request.use(config => {
-  const token = localStorage.getItem('admin_token')
+  const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -18,14 +18,27 @@ request.interceptors.request.use(config => {
 
 // 响应拦截器：统一错误处理
 request.interceptors.response.use(
-  response => response.data,
+  response => {
+    // blob 类型直接返回（用于文件下载）
+    if (response.config.responseType === 'blob') {
+      return response.data
+    }
+    const res = response.data
+    // 后端返回 {code, data, msg} 结构
+    if (res.code === 200) {
+      return res.data  // 直接返回 data 部分
+    }
+    ElMessage.error(res.msg || '请求失败')
+    return Promise.reject(new Error(res.msg || '请求失败'))
+  },
   error => {
     if (error.response) {
       const { status, data } = error.response
       if (status === 401) {
-        localStorage.removeItem('admin_token')
-        localStorage.removeItem('admin_user')
-        window.location.href = '/admin/#/login'
+        localStorage.removeItem('token')
+        localStorage.removeItem('username')
+        localStorage.removeItem('role')
+        window.location.href = '/#/login'
         return Promise.reject(error)
       }
       ElMessage.error(data?.msg || '请求失败')

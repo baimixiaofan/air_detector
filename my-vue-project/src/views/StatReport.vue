@@ -1,34 +1,58 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getReportData } from '@/api/history'
 
-const tableData = ref([
-  { month: '2026-01', site: '奥体中心站', avgPm25: 45, maxAqi: 110, overDays: 3 },
-  { month: '2026-02', site: '奥体中心站', avgPm25: 38, maxAqi: 95, overDays: 1 },
-  { month: '2026-03', site: '奥体中心站', avgPm25: 55, maxAqi: 135, overDays: 5 },
-  { month: '2026-04', site: '奥体中心站', avgPm25: 42, maxAqi: 105, overDays: 2 },
-  { month: '2026-05', site: '奥体中心站', avgPm25: 35, maxAqi: 85, overDays: 0 },
-])
+const tableData = ref([])
+const loading = ref(false)
+const days = ref(7)
+
+const fetchReport = async () => {
+  loading.value = true
+  try {
+    const res = await getReportData({ days: days.value })
+    tableData.value = res || []
+  } catch (e) {
+    console.error(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleDaysChange = (val) => {
+  days.value = val
+  fetchReport()
+}
+
+onMounted(() => {
+  fetchReport()
+})
 </script>
 
 <template>
   <div class="report-container">
     <el-card shadow="never">
       <template #header>
-        <div style="font-weight: bold">📊 2026年度各月空气质量统计月报</div>
+        <div class="card-header">
+          <span>📊 空气质量统计报表</span>
+          <el-radio-group v-model="days" @change="handleDaysChange" size="small">
+            <el-radio-button :value="7">近7天</el-radio-button>
+            <el-radio-button :value="14">近14天</el-radio-button>
+            <el-radio-button :value="30">近30天</el-radio-button>
+          </el-radio-group>
+        </div>
       </template>
 
-      <el-table :data="tableData" border show-summary stripe style="width: 100%">
-        <el-table-column prop="month" label="统计月份" width="180" />
-        <el-table-column prop="site" label="监测站点" width="180" />
-        <el-table-column prop="avgPm25" label="平均 PM2.5 (μg/m³)" sortable />
-        <el-table-column prop="maxAqi" label="月内最高 AQI" sortable />
-        <el-table-column prop="overDays" label="污染超标天数" sortable>
-          <template #default="scope">
-            <span :style="{ color: scope.row.overDays > 2 ? 'red' : 'inherit' }">
-              {{ scope.row.overDays }} 天
-            </span>
-          </template>
-        </el-table-column>
+      <el-table :data="tableData" border show-summary stripe style="width: 100%" v-loading="loading">
+        <el-table-column prop="date" label="日期" width="120" />
+        <el-table-column prop="avg_aqi" label="平均 AQI" sortable />
+        <el-table-column prop="max_aqi" label="最高 AQI" sortable />
+        <el-table-column prop="min_aqi" label="最低 AQI" sortable />
+        <el-table-column prop="avg_pm25" label="平均 PM2.5 (μg/m³)" sortable />
+        <el-table-column prop="avg_no2" label="平均 NO₂" sortable />
+        <el-table-column prop="avg_so2" label="平均 SO₂" sortable />
+        <el-table-column prop="avg_o3" label="平均 O₃" sortable />
+        <el-table-column prop="count" label="数据条数" width="100" />
       </el-table>
     </el-card>
   </div>
@@ -37,5 +61,11 @@ const tableData = ref([
 <style scoped>
 .report-container {
   padding-bottom: 20px;
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
 }
 </style>

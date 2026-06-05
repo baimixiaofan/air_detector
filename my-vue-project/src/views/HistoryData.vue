@@ -1,103 +1,100 @@
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { queryHistory, exportReport } from '@/api/history'
+import { getSites } from '@/api/sites'
 
-// 1. 查询表单的数据对象
 const queryForm = reactive({
-  site: '',
-  dateRange: [], // 选中的时间范围 [开始日期, 结束日期]
-  indicator: 'pm25',
+  device_id: '',
+  dateRange: [],
 })
 
-// 模拟可选的站点列表
-const siteOptions = [
-  { value: 'ST-001', label: '朝阳区奥体中心站' },
-  { value: 'ST-002', label: '海淀区万柳站' },
-  { value: 'ST-003', label: '东城区天坛站' },
-  { value: 'ST-004', label: '西城区万寿西宫站' },
-]
-
-// 2. 模拟大量的历史表格数据
-const tableData = ref([
-  {
-    time: '2026-05-28 00:00:00',
-    siteName: '朝阳区奥体中心站',
-    value: 32,
-    unit: 'μg/m³',
-    status: '正常',
-  },
-  {
-    time: '2026-05-27 23:00:00',
-    siteName: '朝阳区奥体中心站',
-    value: 35,
-    unit: 'μg/m³',
-    status: '正常',
-  },
-  {
-    time: '2026-05-27 22:00:00',
-    siteName: '朝阳区奥体中心站',
-    value: 40,
-    unit: 'μg/m³',
-    status: '正常',
-  },
-  {
-    time: '2026-05-27 21:00:00',
-    siteName: '朝阳区奥体中心站',
-    value: 55,
-    unit: 'μg/m³',
-    status: '超标',
-  },
-  {
-    time: '2026-05-27 20:00:00',
-    siteName: '朝阳区奥体中心站',
-    value: 48,
-    unit: 'μg/m³',
-    status: '正常',
-  },
-])
-
-// 3. 分页相关数据
+const siteOptions = ref([])
+const tableData = ref([])
+const loading = ref(false)
 const currentPage = ref(1)
-const pageSize = ref(10)
-const total = ref(145) // 模拟总共有 145 条历史数据
+const pageSize = ref(50)
+const total = ref(0)
 
-// 点击搜索
-const handleSearch = () => {
-  ElMessage.success('已触发历史数据条件查询（前端模拟）')
+const fetchSites = async () => {
+  try {
+    const res = await getSites({ page: 1, size: 100 })
+    siteOptions.value = (res.list || []).map(s => ({ value: s.code, label: s.name }))
+  } catch (e) {
+    console.error(e)
+  }
 }
 
-// 点击重置
+const handleSearch = async () => {
+  loading.value = true
+  try {
+    const params = {
+      page: currentPage.value,
+      size: pageSize.value,
+    }
+    if (queryForm.device_id) params.device_id = queryForm.device_id
+    if (queryForm.dateRange && queryForm.dateRange.length === 2) {
+      params.start_time = queryForm.dateRange[0] + ' 00:00:00'
+      params.end_time = queryForm.dateRange[1] + ' 23:59:59'
+    }
+    const res = await queryHistory(params)
+    tableData.value = (res.list || []).map(doc => ({
+      time: doc.timestamp,
+      device_id: doc.device_id,
+      aqi: doc.data?.AQI ?? '-',
+      pm25: doc.data?.['PM₂.₅'] ?? '-',
+      no2: doc.data?.NO2 ?? '-',
+      so2: doc.data?.SO2 ?? '-',
+      o3: doc.data?.O3 ?? '-',
+    }))
+    total.value = res.total || 0
+  } catch (e) {
+    console.error(e)
+  } finally {
+    loading.value = false
+  }
+}
+
 const handleReset = () => {
-  queryForm.site = ''
+  queryForm.device_id = ''
   queryForm.dateRange = []
-  queryForm.indicator = 'pm25'
-  ElMessage.info('查询条件已重置')
+  tableData.value = []
+  total.value = 0
 }
 
-// 点击导出
-const handleExport = () => {
-  ElMessage.success('正在导出历史数据 Excel 表格...')
+const handleExport = async () => {
+  try {
+    const params = { days: 7 }
+    if (queryForm.device_id) params.device_id = queryForm.device_id
+    const blob = await exportReport(params)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `air_quality_report_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('导出成功')
+  } catch (e) {
+    ElMessage.error('导出失败')
+  }
 }
+
+const handlePageChange = (p) => {
+  currentPage.value = p
+  handleSearch()
+}
+
+onMounted(() => {
+  fetchSites()
+})
 </script>
 
 <template>
   <div class="history-container">
     <el-card shadow="never" class="filter-card">
       <el-form :model="queryForm" inline class="demo-form-inline">
-        <el-form-item label="监测站点">
-          <el-select
-            v-model="queryForm.site"
-            placeholder="请选择站点"
-            style="width: 200px"
-            clearable
-          >
-            <el-option
-              v-for="item in siteOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
+        <el-form-item label="设备ID">
+          <el-input v-model="queryForm.device_id" placeholder="输入设备ID" style="width: 180px" clearable />
         </el-form-item>
 
         <el-form-item label="时间范围">
@@ -111,51 +108,33 @@ const handleExport = () => {
           />
         </el-form-item>
 
-        <el-form-item label="监测指标">
-          <el-select v-model="queryForm.indicator" style="width: 120px">
-            <el-option label="PM2.5" value="pm25" />
-            <el-option label="PM10" value="pm10" />
-            <el-option label="AQI" value="aqi" />
-            <el-option label="温度" value="temp" />
-          </el-select>
-        </el-form-item>
-
         <el-form-item>
-          <el-button type="primary" @click="handleSearch">🔍 查询</el-button>
+          <el-button type="primary" @click="handleSearch" :loading="loading">🔍 查询</el-button>
           <el-button @click="handleReset">🔄 重置</el-button>
-          <el-button type="warning" plain @click="handleExport">📥 导出 Excel</el-button>
+          <el-button type="warning" plain @click="handleExport">📥 导出 CSV</el-button>
         </el-form-item>
       </el-form>
     </el-card>
 
     <el-card shadow="never" class="table-card" style="margin-top: 20px">
-      <el-table :data="tableData" border stripe style="width: 100%">
+      <el-table :data="tableData" border stripe style="width: 100%" v-loading="loading">
         <el-table-column prop="time" label="数据时间" width="180" />
-        <el-table-column prop="siteName" label="站点名称" min-width="180" />
-        <el-table-column label="监测指标" width="120">
-          <template #default>
-            <span>{{ queryForm.indicator.toUpperCase() }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="value" label="监测数值" width="120" />
-        <el-table-column prop="unit" label="单位" width="100" />
-        <el-table-column prop="status" label="状态" width="120" align="center">
-          <template #default="scope">
-            <el-tag :type="scope.row.status === '正常' ? 'success' : 'danger'">
-              {{ scope.row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
+        <el-table-column prop="device_id" label="设备ID" width="150" />
+        <el-table-column prop="aqi" label="AQI" width="80" />
+        <el-table-column prop="pm25" label="PM2.5" width="80" />
+        <el-table-column prop="no2" label="NO₂" width="80" />
+        <el-table-column prop="so2" label="SO₂" width="80" />
+        <el-table-column prop="o3" label="O₃" width="80" />
       </el-table>
 
-      <div class="pagination-wrapper">
+      <div class="pagination-wrapper" v-if="total > pageSize">
         <el-pagination
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :page-sizes="[10, 20, 50, 100]"
           background
-          layout="total, sizes, prev, pager, next, jumper"
+          layout="total, prev, pager, next"
           :total="total"
+          :page-size="pageSize"
+          :current-page="currentPage"
+          @current-change="handlePageChange"
         />
       </div>
     </el-card>
@@ -167,7 +146,7 @@ const handleExport = () => {
   padding-bottom: 20px;
 }
 .filter-card :deep(.el-form-item) {
-  margin-bottom: 0; /* 让行内表单垂直居中，不占多余高度 */
+  margin-bottom: 0;
   margin-right: 18px;
 }
 .pagination-wrapper {
