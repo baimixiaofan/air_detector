@@ -1,21 +1,50 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import * as echarts from 'echarts'
+import { ElMessage } from 'element-plus'
+import { getDashboardStats, getDashboardTrend } from '@/api/dashboard'
 
 const chartRef = ref(null)
 let myChart = null
-// 用来控制图表右上角的切换按钮
 const timeRange = ref('today')
 
-// 💡 图表高级化配置核心
-const initChart = () => {
+const statsData = ref({
+  total_sites: 0,
+  total_devices: 0,
+  online_devices: 0,
+  pending_alerts: 0,
+})
+
+const fetchRealData = async () => {
+  try {
+    // 拉取顶部 4 个卡片的统计数据
+    const statsRes = await getDashboardStats()
+    statsData.value = statsRes
+
+    // 拉取图表的 24 小时趋势数据
+    const trendRes = await getDashboardTrend()
+
+    const xData = trendRes.map((item) => item.hour.slice(-2) + ':00')
+    const pm25Data = trendRes.map((item) => item.avg_pm25)
+    const aqiData = trendRes.map((item) => item.avg_aqi)
+
+    initChart(xData, pm25Data, aqiData)
+  } catch (error) {
+    console.error('获取看板数据失败', error)
+    ElMessage.error('获取实时数据失败，请检查后端服务是否开启！')
+  }
+}
+
+// 💡 4. 图表初始化函数（接收真实的 x轴、PM2.5 和 AQI 数据）
+const initChart = (xData, pm25Data, aqiData) => {
   if (!chartRef.value) return
-  myChart = echarts.init(chartRef.value, 'dark')
+  if (!myChart) {
+    // 如果还没初始化，就初始化一次
+    myChart = echarts.init(chartRef.value)
+  }
 
   const option = {
-    // 💡 2. 在 option 的最开头，加上背景透明属性
     backgroundColor: 'transparent',
-    // 高级 Tooltip (毛玻璃悬浮框)
     tooltip: {
       trigger: 'axis',
       backgroundColor: 'rgba(255, 255, 255, 0.9)',
@@ -27,57 +56,38 @@ const initChart = () => {
       textStyle: { color: '#334155', fontWeight: 500 },
       axisPointer: { type: 'line', lineStyle: { color: '#cbd5e1', type: 'dashed' } },
     },
+    // 把假数据的 PM10 和 温度 删掉，换成后端真实返回的 AQI 指数
     legend: {
-      data: ['PM2.5', 'PM10', '温度'],
+      data: ['PM2.5 浓度', 'AQI 综合指数'],
       top: 0,
       icon: 'circle',
       itemGap: 24,
-      textStyle: { color: '#64748b' },
+      textStyle: { color: '#64748b', fontWeight: 'bold' },
     },
     grid: { left: '2%', right: '2%', bottom: '2%', containLabel: true, top: '50px' },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: [
-        '00:00',
-        '02:00',
-        '04:00',
-        '06:00',
-        '08:00',
-        '10:00',
-        '12:00',
-        '14:00',
-        '16:00',
-        '18:00',
-        '20:00',
-        '22:00',
-      ],
-      axisLine: { show: false }, // 隐藏 X 轴黑线
-      axisTick: { show: false }, // 隐藏刻度
+      data: xData, // 💡 使用真实的 X 轴时间
+      axisLine: { show: false },
+      axisTick: { show: false },
       axisLabel: { color: '#94a3b8', margin: 16 },
     },
     yAxis: [
       {
         type: 'value',
-        name: '浓度 (μg/m³)',
+        name: '数值',
         nameTextStyle: { color: '#94a3b8', padding: [0, 0, 0, 20] },
-        splitLine: { lineStyle: { type: 'dashed', color: '#f1f5f9' } }, // 极其微弱的虚线网格
-        axisLabel: { color: '#94a3b8' },
-      },
-      {
-        type: 'value',
-        name: '温度 (℃)',
-        nameTextStyle: { color: '#94a3b8' },
-        splitLine: { show: false },
+        splitLine: { lineStyle: { type: 'dashed', color: '#f1f5f9' } },
         axisLabel: { color: '#94a3b8' },
       },
     ],
     series: [
       {
-        name: 'PM2.5',
+        name: 'PM2.5 浓度',
         type: 'line',
-        smooth: true, // 极其丝滑的曲线
-        showSymbol: false, // 平时隐藏折线点，鼠标放上去才显示
+        smooth: true,
+        showSymbol: false,
         lineStyle: {
           width: 4,
           color: '#3b82f6',
@@ -85,17 +95,16 @@ const initChart = () => {
           shadowBlur: 10,
         },
         itemStyle: { color: '#3b82f6' },
-        // 💡 核心魔法：渐变面积填充
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: 'rgba(59, 130, 246, 0.4)' },
             { offset: 1, color: 'rgba(59, 130, 246, 0.0)' },
           ]),
         },
-        data: [35, 32, 28, 30, 45, 55, 60, 50, 42, 38, 36, 33],
+        data: pm25Data, // 💡 真实的 PM2.5 数据
       },
       {
-        name: 'PM10',
+        name: 'AQI 综合指数',
         type: 'line',
         smooth: true,
         showSymbol: false,
@@ -112,37 +121,18 @@ const initChart = () => {
             { offset: 1, color: 'rgba(245, 158, 11, 0.0)' },
           ]),
         },
-        data: [50, 48, 45, 47, 65, 80, 85, 75, 60, 55, 50, 48],
-      },
-      {
-        name: '温度',
-        type: 'line',
-        yAxisIndex: 1,
-        smooth: true,
-        showSymbol: false,
-        lineStyle: {
-          width: 4,
-          color: '#10b981',
-          shadowColor: 'rgba(16, 185, 129, 0.3)',
-          shadowBlur: 10,
-        },
-        itemStyle: { color: '#10b981' },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(16, 185, 129, 0.4)' },
-            { offset: 1, color: 'rgba(16, 185, 129, 0.0)' },
-          ]),
-        },
-        data: [15, 14, 13, 14, 16, 20, 24, 25, 22, 19, 17, 16],
+        data: aqiData, // 💡 真实的 AQI 数据
       },
     ],
   }
 
-  myChart.setOption(option)
+  // 使用 true 强制刷新图表数据
+  myChart.setOption(option, true)
 }
 
 onMounted(() => {
-  initChart()
+  // 💡 页面一挂载，就去请求真数据
+  fetchRealData()
   window.addEventListener('resize', () => myChart?.resize())
 })
 
@@ -159,7 +149,9 @@ onUnmounted(() => {
         <el-card shadow="hover" class="data-card">
           <div class="card-watermark">🌍</div>
           <div class="card-title">监控站点总数</div>
-          <div class="card-value gradient-blue">128<span class="unit">个</span></div>
+          <div class="card-value gradient-blue">
+            {{ statsData.total_sites }}<span class="unit">个</span>
+          </div>
           <div class="card-trend">较上月新增 <span class="trend-badge up">↑ 12%</span></div>
         </el-card>
       </el-col>
@@ -167,24 +159,44 @@ onUnmounted(() => {
         <el-card shadow="hover" class="data-card">
           <div class="card-watermark">⚙️</div>
           <div class="card-title">接入设备总数</div>
-          <div class="card-value gradient-green">3,240<span class="unit">台</span></div>
-          <div class="card-trend">全部网格化部署完毕</div>
+          <div class="card-value gradient-green">
+            {{ statsData.total_devices }}<span class="unit">台</span>
+          </div>
+          <div class="card-trend">数据库直连同步中...</div>
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="hover" class="data-card">
           <div class="card-watermark">⚡</div>
           <div class="card-title">设备实时在线</div>
-          <div class="card-value gradient-orange">3,102<span class="unit">台</span></div>
-          <div class="card-trend">当前在线率 <span class="trend-badge up">95.7%</span></div>
+          <div class="card-value gradient-orange">
+            {{ statsData.online_devices }}<span class="unit">台</span>
+          </div>
+          <div class="card-trend">
+            当前在线率
+            <span class="trend-badge up"
+              >{{
+                statsData.total_devices
+                  ? Math.round((statsData.online_devices / statsData.total_devices) * 100)
+                  : 0
+              }}%</span
+            >
+          </div>
         </el-card>
       </el-col>
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="hover" class="data-card">
           <div class="card-watermark">⚠️</div>
-          <div class="card-title">今日待处理告警</div>
-          <div class="card-value gradient-red">5<span class="unit">条</span></div>
-          <div class="card-trend">较昨日同期 <span class="trend-badge down">↓ 2条</span></div>
+          <div class="card-title">未处理告警</div>
+          <div class="card-value gradient-red">
+            {{ statsData.pending_alerts }}<span class="unit">条</span>
+          </div>
+          <div class="card-trend" v-if="statsData.pending_alerts > 0">
+            需要立即派单 <span class="trend-badge down">加急</span>
+          </div>
+          <div class="card-trend" v-else>
+            当前系统运行平稳 <span class="trend-badge up">正常</span>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -192,10 +204,9 @@ onUnmounted(() => {
     <el-card shadow="hover" class="chart-card">
       <template #header>
         <div class="chart-header">
-          <span>📈 24 小时环境数据趋势概览</span>
+          <span>📈 24 小时真实环境数据趋势</span>
           <el-radio-group v-model="timeRange" size="small">
             <el-radio-button label="today">今日实时</el-radio-button>
-            <el-radio-button label="week">本周均值</el-radio-button>
           </el-radio-group>
         </div>
       </template>

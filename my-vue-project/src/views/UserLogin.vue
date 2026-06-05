@@ -2,39 +2,44 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useUserStore } from '../store/user'
+// 💡 1. 引入你组员写好的真实后端登录接口
+import { login } from '@/api/auth'
 
 const router = useRouter()
-const userStore = useUserStore()
 
 const username = ref('admin')
 const password = ref('123456')
+const loading = ref(false) // 增加一个 loading 状态，让点击时有转圈效果
 
-const handleLogin = () => {
-  // 💡 核心逻辑：去花名册里找有没有账号和密码完全匹配的人
-  const targetUser = userStore.userList.find(
-    (u) => u.username === username.value && u.password === password.value,
-  )
+const handleLogin = async () => {
+  if (!username.value || !password.value) {
+    ElMessage.warning('请输入账号和密码')
+    return
+  }
 
-  if (targetUser) {
-    // 找到了人，还要看看他有没有被拉黑（状态是否为 false）
-    if (!targetUser.status) {
-      ElMessage.error('🚫 该账号已被禁用，请联系超级管理员！')
-      return
-    }
+  loading.value = true
+  try {
+    // 💡 2. 核心逻辑：向真实的后端发起请求！
+    // 这行代码会带着账号密码跑到 admin_api.py 里去校验
+    const res = await login(username.value, password.value)
 
-    // 校验全部通过，存入 Token、名字和权限角色！
-    userStore.login('mock-token-123456', targetUser.username, targetUser.role)
+    // 💡 3. 极其重要：把后端返回的真实 Token 存进浏览器的保险箱！
+    // 名字必须叫 'admin_token'，因为你的 request.js 拦截器里就是找这个名字去拿的
+    localStorage.setItem('admin_token', res.token)
+    localStorage.setItem('admin_user', JSON.stringify(res.user))
 
-    ElMessage.success(`欢迎回来，${targetUser.nickname}！`)
+    ElMessage.success(`欢迎回来，${res.user.display_name || res.user.username}！`)
+
+    // 登录成功，跳转到大屏数据看板
     router.push('/admin/dataDashboard')
-  } else {
-    // 找不到人，或者密码不对
-    ElMessage.error('❌ 账号或密码错误！')
+  } catch (error) {
+    // 密码错误等拦截器已经自动弹窗提示了，这里只需接住异常防止代码崩溃
+    console.error('登录异常:', error)
+  } finally {
+    loading.value = false
   }
 }
 </script>
-
 <template>
   <div class="login-container">
     <el-card class="login-box">
