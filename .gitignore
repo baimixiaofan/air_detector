@@ -22,7 +22,6 @@ __pycache__/
 ssh_tmp.ps1
 
 # 文档（非代码）
-docs/
 数据库结构.docx
 
 # 编辑器/IDE
