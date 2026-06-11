@@ -6,28 +6,19 @@
       </el-button>
     </PageHeader>
 
-    <FilterBar>
-      <el-select v-model="filters.status" placeholder="在线状态" clearable>
-        <el-option label="在线" value="online" />
-        <el-option label="离线" value="offline" />
-      </el-select>
-      <el-select v-model="filters.siteId" placeholder="绑定站点" clearable>
-        <el-option v-for="s in sites" :key="s.id" :label="s.name" :value="s.id" />
-      </el-select>
-      <el-input v-model="filters.keyword" placeholder="搜索设备编码" clearable prefix-icon="Search" />
-    </FilterBar>
-
     <DashboardCard>
-      <el-table :data="filteredData" v-loading="loading" stripe style="width: 100%">
+      <el-table :data="filteredData" v-loading="loading" stripe max-height="600">
         <el-table-column prop="device_id" label="设备编码" min-width="150" />
-        <el-table-column prop="location" label="位置" min-width="150" />
+        <el-table-column prop="location" label="位置/名称" min-width="150">
+          <template #default="{ row }">{{ row.location || row.name || '-' }}</template>
+        </el-table-column>
         <el-table-column label="经纬度" width="180">
           <template #default="{ row }">
             <span v-if="row.latitude && row.longitude">{{ row.latitude }}, {{ row.longitude }}</span>
             <span v-else class="text-muted">未设置</span>
           </template>
         </el-table-column>
-        <el-table-column label="在线状态" width="100">
+        <el-table-column label="在线状态" width="100" align="center">
           <template #default="{ row }">
             <span class="status-badge" :class="row.online ? 'status-badge--success' : 'status-badge--default'">
               <span class="status-dot" :class="{ 'status-dot--pulse': row.online }"></span>
@@ -35,114 +26,79 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="绑定站点" width="140">
+        <el-table-column label="来源" width="90">
           <template #default="{ row }">
-            <span v-if="row.site_name">{{ row.site_name }}</span>
-            <span v-else class="text-muted">未绑定</span>
+            <el-tag :type="row.source === 'config' ? '' : 'primary'" size="small">
+              {{ row.source === 'config' ? '配置文件' : 'MySQL' }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="160">
+        <el-table-column label="创建时间" width="160">
           <template #default="{ row }">
-            {{ formatDateTime(row.created_at) }}
+            <span v-if="row.created_at">{{ formatDateTime(row.created_at) }}</span>
+            <span v-else class="text-muted">配置文件</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)">
-              <el-icon><Edit /></el-icon>
+            <el-button link type="danger" @click="handleDelete(row)">
+              <el-icon><Delete /></el-icon>
             </el-button>
-            <el-popconfirm title="确认删除？" @confirm="handleDelete(row.id)">
-              <template #reference>
-                <el-button link type="danger">
-                  <el-icon><Delete /></el-icon>
-                </el-button>
-              </template>
-            </el-popconfirm>
           </template>
         </el-table-column>
       </el-table>
-
-      <div class="table-pagination">
-        <el-pagination
-          v-model:current-page="pagination.page"
-          v-model:page-size="pagination.size"
-          :total="filteredData.length"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next"
-          background
-        />
-      </div>
     </DashboardCard>
 
-    <!-- Create/Edit Drawer -->
-    <el-drawer v-model="drawerVisible" :title="isEdit ? '编辑设备' : '添加设备'" size="420px">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
-        <el-form-item label="设备编码" prop="device_id">
-          <el-input v-model="form.device_id" placeholder="如：192.168.1.100" :disabled="isEdit" />
+    <!-- 新增设备对话框 -->
+    <el-dialog v-model="dialogVisible" title="添加设备" width="460px">
+      <el-form :model="form" label-width="80px">
+        <el-form-item label="设备编码" required>
+          <el-input v-model="form.device_id" placeholder="如：CQ_008" />
         </el-form-item>
-        <el-form-item label="位置" prop="location">
-          <el-input v-model="form.location" placeholder="请输入设备位置" />
+        <el-form-item label="设备名称" required>
+          <el-input v-model="form.name" placeholder="如：重庆-江北嘴" />
         </el-form-item>
         <el-form-item label="纬度">
-          <el-input-number v-model="form.latitude" :precision="6" :step="0.001" style="width: 100%" />
+          <el-input-number v-model="form.latitude" :precision="2" style="width: 100%" />
         </el-form-item>
         <el-form-item label="经度">
-          <el-input-number v-model="form.longitude" :precision="6" :step="0.001" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="绑定站点">
-          <el-select v-model="form.site_id" placeholder="选择站点" clearable style="width: 100%">
-            <el-option v-for="s in sites" :key="s.id" :label="s.name" :value="s.id" />
-          </el-select>
+          <el-input-number v-model="form.longitude" :precision="2" style="width: 100%" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="drawerVisible = false">取消</el-button>
+        <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="handleSubmit" :loading="submitting">保存</el-button>
       </template>
-    </el-drawer>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getDevices, createDevice, updateDevice, deleteDevice } from '@/api/devices'
-import { getSites } from '@/api/sites'
+import { getDevices, createDevice, deleteDevice } from '@/api/devices'
 import PageHeader from '@/components/common/PageHeader.vue'
 import DashboardCard from '@/components/common/DashboardCard.vue'
-import FilterBar from '@/components/common/FilterBar.vue'
 import { formatDateTime } from '@/utils/format'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
 const tableData = ref([])
-const sites = ref([])
-const drawerVisible = ref(false)
-const isEdit = ref(false)
+const dialogVisible = ref(false)
 const submitting = ref(false)
-const formRef = ref(null)
 
-const filters = ref({ status: '', siteId: '', keyword: '' })
-const pagination = ref({ page: 1, size: 20 })
+const filters = ref({ status: '', keyword: '' })
 
 const form = ref({
-  id: null,
   device_id: '',
-  location: '',
+  name: '',
   latitude: null,
-  longitude: null,
-  site_id: null
+  longitude: null
 })
-
-const rules = {
-  device_id: [{ required: true, message: '请输入设备编码', trigger: 'blur' }],
-  location: [{ required: true, message: '请输入位置', trigger: 'blur' }]
-}
 
 const filteredData = computed(() => {
   return tableData.value.filter(d => {
     if (filters.value.status === 'online' && !d.online) return false
     if (filters.value.status === 'offline' && d.online) return false
-    if (filters.value.siteId && d.site_id !== filters.value.siteId) return false
     if (filters.value.keyword && !d.device_id.includes(filters.value.keyword)) return false
     return true
   })
@@ -153,81 +109,46 @@ async function fetchData() {
   try {
     const res = await getDevices()
     if (res.code === 200) {
-      tableData.value = res.data || []
+      tableData.value = Array.isArray(res.data) ? res.data : (res.data?.list || [])
     }
-  } catch (e) {
-    console.error(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function fetchSites() {
-  try {
-    const res = await getSites()
-    if (res.code === 200) {
-      sites.value = res.data || []
-    }
-  } catch (e) {
-    console.error(e)
-  }
+  } finally { loading.value = false }
 }
 
 function handleAdd() {
-  isEdit.value = false
-  form.value = { id: null, device_id: '', location: '', latitude: null, longitude: null, site_id: null }
-  drawerVisible.value = true
-}
-
-function handleEdit(row) {
-  isEdit.value = true
-  form.value = { ...row }
-  drawerVisible.value = true
+  form.value = { device_id: '', name: '', latitude: null, longitude: null }
+  dialogVisible.value = true
 }
 
 async function handleSubmit() {
-  await formRef.value?.validate()
+  if (!form.value.device_id || !form.value.name) {
+    return ElMessage.warning('请填写设备编码和名称')
+  }
   submitting.value = true
   try {
-    if (isEdit.value) {
-      await updateDevice(form.value.id, form.value)
-      ElMessage.success('更新成功')
+    const res = await createDevice(form.value)
+    if (res.code === 200) {
+      ElMessage.success('设备已添加，已同步到 device_config.json')
+      dialogVisible.value = false
+      fetchData()
     } else {
-      await createDevice(form.value)
-      ElMessage.success('创建成功')
+      ElMessage.error(res.msg || '添加失败')
     }
-    drawerVisible.value = false
-    fetchData()
-  } catch (e) {
-    ElMessage.error('操作失败')
-  } finally {
-    submitting.value = false
-  }
+  } finally { submitting.value = false }
 }
 
-async function handleDelete(id) {
+async function handleDelete(row) {
   try {
-    await deleteDevice(id)
-    ElMessage.success('删除成功')
-    fetchData()
-  } catch (e) {
-    ElMessage.error('删除失败')
-  }
+    await ElMessageBox.confirm(`确认删除设备「${row.device_id}」？同时会从配置文件中移除。`, '提示')
+    // 直接调 API 删除 JSON 中的设备
+    const res = await deleteDevice(row.device_id)
+    if (res.code === 200) {
+      ElMessage.success('已删除')
+      fetchData()
+    } else {
+      ElMessage.error(res.msg || '删除失败')
+    }
+  } catch { /* cancelled */ }
 }
 
-onMounted(() => {
-  fetchData()
-  fetchSites()
-})
+onMounted(fetchData)
 </script>
-
-<style scoped>
-.table-pagination {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-.text-muted {
-  color: var(--text-muted);
-}
-</style>

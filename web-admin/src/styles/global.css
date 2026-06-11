@@ -524,6 +524,14 @@ body {
   animation: scaleIn 0.2s ease-out;
 }
 
+/* ===== Striped Rows (灰白交替) ===== */
+.el-table--striped .el-table__body tr.el-table__row--striped td {
+  background-color: #F5F5F7 !important;
+}
+.el-table--striped .el-table__body tr.el-table__row--striped:hover td {
+  background-color: #EBEBEE !important;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 1200px) {
   .kpi-row {

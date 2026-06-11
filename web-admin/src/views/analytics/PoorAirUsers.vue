@@ -94,12 +94,12 @@ import StatCard from '@/components/common/StatCard.vue'
 const loading = ref(false)
 const exporting = ref(false)
 const tableData = ref([])
-const summary = ref({ total_users: 0, total_avg_aqi: 0, days: 30, aqi_threshold: 100, min_exceed_days: 7 })
+const summary = ref({ total_users: 0, total_avg_aqi: 0, days: 30, aqi_threshold: 50, min_exceed_days: 1 })
 
 const filters = reactive({
   days: 30,
-  aqi_threshold: 100,
-  min_exceed_days: 7,
+  aqi_threshold: 50,
+  min_exceed_days: 1,
   area: ''
 })
 

@@ -81,14 +81,25 @@
             <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-info"><span class="stat-value">{{ selectedProvince.online }}</span><span class="stat-label">在线</span></div></div>
           </div>
           <div class="city-list">
-            <h4>地级市分布</h4>
-            <div v-for="city in selectedProvince.cities" :key="city.name" class="city-item" @click="selectCity(city)">
-              <div class="city-info"><span class="city-name">{{ city.name }}</span><span class="city-devices">{{ city.devices }} 台设备</span></div>
-              <div class="city-stats">
-                <span class="city-online"><span class="online-dot"></span>{{ city.online }} 在线</span>
-                <span class="city-aqi" :style="{ color: getAQIColor(city.avg_aqi) }">AQI {{ city.avg_aqi }}</span>
+            <h4>{{ selectedProvince.cities.length === 1 ? '区县分布' : '地级市分布' }}</h4>
+            <template v-if="selectedProvince.cities.length === 1">
+              <div v-for="district in selectedProvince.cities[0].districts" :key="district.name" class="city-item" @click="selectCity(district)">
+                <div class="city-info"><span class="city-name">{{ district.name }}</span><span class="city-devices">{{ district.devices }} 台设备</span></div>
+                <div class="city-stats">
+                  <span class="city-online"><span class="online-dot"></span>{{ district.online }} 在线</span>
+                  <span class="city-aqi" :style="{ color: getAQIColor(district.avg_aqi) }">AQI {{ district.avg_aqi }}</span>
+                </div>
               </div>
-            </div>
+            </template>
+            <template v-else>
+              <div v-for="city in selectedProvince.cities" :key="city.name" class="city-item" @click="selectCity(city)">
+                <div class="city-info"><span class="city-name">{{ city.name }}</span><span class="city-devices">{{ city.devices }} 台设备</span></div>
+                <div class="city-stats">
+                  <span class="city-online"><span class="online-dot"></span>{{ city.online }} 在线</span>
+                  <span class="city-aqi" :style="{ color: getAQIColor(city.avg_aqi) }">AQI {{ city.avg_aqi }}</span>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -195,26 +206,53 @@ async function selectProvince(province) {
   if (code) {
     loading.value = true
     try {
-      const resp = await fetch(`https://geo.datav.aliyun.com/areas_v3/bound/${code}_full.json`)
-      const json = await resp.json()
+      // 先用直连，失败则走自己后端代理
+      let json
+      try {
+        const resp = await fetch(`https://geo.datav.aliyun.com/areas_v3/bound/${code}_full.json`)
+        json = await resp.json()
+      } catch {
+        const resp = await fetch(`/api/admin/geo/province/${code}`)
+        json = await resp.json()
+      }
       echarts.registerMap(province.name, json)
-      const chartData = (province.cities || []).map(c => ({ name: c.name, value: c.devices, aqi: c.avg_aqi }))
+      // 如果只有1个城市（直辖市），用区县数据；否则用城市数据
+      let chartData = []
+      if (province.cities && province.cities.length === 1 && province.cities[0].districts) {
+        chartData = province.cities[0].districts.map(d => ({ name: d.name, value: d.avg_aqi || 0, devices: d.devices, aqi: d.avg_aqi || 0, online: d.online }))
+      } else {
+        chartData = (province.cities || []).map(c => ({ name: c.name, value: c.avg_aqi || 0, devices: c.devices, aqi: c.avg_aqi || 0, online: c.online }))
+      }
       if (chart) {
         chart.setOption({
           tooltip: {
             trigger: 'item',
             formatter: p => {
               const d = chartData.find(c => c.name === p.name)
-              return d ? `<b>${p.name}</b><br/>设备: ${d.value} 台<br/>AQI: ${d.aqi}` : p.name
+              if (!d) return p.name
+              const level = d.aqi <= 50 ? '优' : d.aqi <= 100 ? '良' : '污染'
+              const color = d.aqi <= 50 ? '#34C759' : d.aqi <= 100 ? '#FF9500' : '#FF3B30'
+              return `<b>${p.name}</b><br/>AQI: <span style="color:${color};font-weight:700">${d.aqi}</span> (${level})<br/>设备: ${d.devices} 台<br/>在线: ${d.online || 0}`
             }
           },
-          visualMap: { show: false },
+          visualMap: {
+            type: 'piecewise',
+            pieces: [
+              { min: 0, max: 50, label: '优 (0-50)', color: '#34C759' },
+              { min: 51, max: 100, label: '良 (51-100)', color: '#FF9500' },
+              { min: 101, label: '污染 (>100)', color: '#FF3B30' }
+            ],
+            left: 20, bottom: 20,
+            textStyle: { color: '#6E6E73', fontSize: 12 }
+          },
           series: [{
-            type: 'map', map: province.name, roam: true, zoom: 2.5,
+            type: 'map',
+            map: province.name,
+            roam: true,
+            zoom: 2.5,
             scaleLimit: { min: 1, max: 10 },
             label: { show: true, fontSize: 12, color: '#1D1D1F' },
             emphasis: { label: { fontSize: 14, fontWeight: 'bold', color: '#0066CC' }, itemStyle: { areaColor: '#E3F2FD', borderColor: '#0066CC', borderWidth: 2 } },
-            itemStyle: { areaColor: '#F5F5F7', borderColor: '#E0E0E0', borderWidth: 1 },
             data: chartData
           }]
         }, true)
@@ -245,19 +283,30 @@ function initChinaMap() {
       trigger: 'item',
       formatter: p => {
         const d = provinceData.value.find(x => x.name === p.name)
-        return d ? `<b>${p.name}</b><br/>设备: ${d.devices} 台<br/>在线: ${d.online}<br/>AQI: ${d.avg_aqi}` : p.name
+        if (!d) return p.name
+        const level = d.avg_aqi <= 50 ? '优' : d.avg_aqi <= 100 ? '良' : '污染'
+        const color = d.avg_aqi <= 50 ? '#34C759' : d.avg_aqi <= 100 ? '#FF9500' : '#FF3B30'
+        return `<b>${p.name}</b><br/>AQI: <span style="color:${color};font-weight:700">${d.avg_aqi}</span> (${level})<br/>设备: ${d.devices} 台<br/>在线: ${d.online}`
       }
     },
-    visualMap: { min: 0, max: 200, left: 20, bottom: 20, text: ['优', '差'], textStyle: { color: '#6E6E73' }, inRange: { color: ['#34C759', '#FF9500', '#FF3B30'] }, show: false },
+    visualMap: {
+      type: 'piecewise',
+      pieces: [
+        { min: 0, max: 50, label: '优 (0-50)', color: '#34C759' },
+        { min: 51, max: 100, label: '良 (51-100)', color: '#FF9500' },
+        { min: 101, label: '污染 (>100)', color: '#FF3B30' }
+      ],
+      left: 20, bottom: 20,
+      textStyle: { color: '#6E6E73', fontSize: 12 }
+    },
     series: [{
       type: 'map', map: 'china', roam: true, zoom: 1.2, scaleLimit: { min: 1, max: 5 },
       label: { show: true, fontSize: 12, color: '#1D1D1F' },
       emphasis: { label: { fontSize: 14, fontWeight: 'bold', color: '#0066CC' }, itemStyle: { areaColor: '#E3F2FD', borderColor: '#0066CC', borderWidth: 2 } },
-      itemStyle: { areaColor: '#F5F5F7', borderColor: '#E0E0E0', borderWidth: 1 },
-      data: provinceData.value.map(p => ({ name: p.name, value: p.devices, aqi: p.avg_aqi }))
+      data: provinceData.value.map(p => ({ name: p.name, value: p.avg_aqi || 0, devices: p.devices, aqi: p.avg_aqi || 0, online: p.online }))
     }]
   }
-  chart.setOption(option, true)
+  chart.setOption(option)
   chart.on('click', params => {
     const province = provinceData.value.find(p => p.name === params.name)
     if (province) selectProvince(province)

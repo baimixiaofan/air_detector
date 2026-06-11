@@ -37,75 +37,73 @@ try:
 except ImportError:
     redis = None
 
-DATA_GENERATION_INTERVAL = 5000  # 默认5秒
+DATA_GENERATION_INTERVAL = 100 # 默认5秒
 
 # ============================================================
 #  全国城市配置 — 每个城市有不同的 AQI 基准和特征
 # ============================================================
 CITY_PROFILES = {
-    # 华北
-    '北京': {'province': '北京市', 'city': '北京市', 'district': '朝阳区', 'lat': 39.92, 'lng': 116.46,
-            'aqi_base': 75, 'pm25_base': 40, 'no2_base': 35, 'so2_base': 10, 'o3_base': 45, 'industry': '办公'},
-    '天津': {'province': '天津市', 'city': '天津市', 'district': '滨海新区', 'lat': 39.08, 'lng': 117.20,
-            'aqi_base': 70, 'pm25_base': 38, 'no2_base': 32, 'so2_base': 9, 'o3_base': 42, 'industry': '办公'},
-    '石家庄': {'province': '河北省', 'city': '石家庄市', 'district': '长安区', 'lat': 38.04, 'lng': 114.51,
+    # ======== 直辖市（到区级） ========
+    '北京朝阳': {'province': '北京市', 'city': '北京市', 'district': '朝阳区', 'lat': 39.92, 'lng': 116.46,
+               'aqi_base': 75, 'pm25_base': 40, 'no2_base': 35, 'so2_base': 10, 'o3_base': 45, 'industry': '办公'},
+    '北京海淀': {'province': '北京市', 'city': '北京市', 'district': '海淀区', 'lat': 39.96, 'lng': 116.33,
+               'aqi_base': 72, 'pm25_base': 38, 'no2_base': 33, 'so2_base': 9, 'o3_base': 46, 'industry': '办公'},
+    '天津滨海': {'province': '天津市', 'city': '天津市', 'district': '滨海新区', 'lat': 39.08, 'lng': 117.20,
+               'aqi_base': 70, 'pm25_base': 38, 'no2_base': 32, 'so2_base': 9, 'o3_base': 42, 'industry': '办公'},
+    '上海浦东': {'province': '上海市', 'city': '上海市', 'district': '浦东新区', 'lat': 31.23, 'lng': 121.47,
+               'aqi_base': 55, 'pm25_base': 28, 'no2_base': 25, 'so2_base': 6, 'o3_base': 40, 'industry': '办公'},
+    '石家庄': {'province': '河北省', 'city': '石家庄市', 'district': '石家庄市', 'lat': 38.04, 'lng': 114.51,
               'aqi_base': 85, 'pm25_base': 48, 'no2_base': 38, 'so2_base': 12, 'o3_base': 40, 'industry': '工厂'},
-    '太原': {'province': '山西省', 'city': '太原市', 'district': '迎泽区', 'lat': 37.87, 'lng': 112.55,
-            'aqi_base': 80, 'pm25_base': 45, 'no2_base': 36, 'so2_base': 11, 'o3_base': 38, 'industry': '工厂'},
-    # 华东
-    '上海': {'province': '上海市', 'city': '上海市', 'district': '浦东新区', 'lat': 31.23, 'lng': 121.47,
-            'aqi_base': 55, 'pm25_base': 28, 'no2_base': 25, 'so2_base': 6, 'o3_base': 40, 'industry': '办公'},
-    '南京': {'province': '江苏省', 'city': '南京市', 'district': '鼓楼区', 'lat': 32.06, 'lng': 118.80,
+    '南京': {'province': '江苏省', 'city': '南京市', 'district': '南京市', 'lat': 32.06, 'lng': 118.80,
             'aqi_base': 60, 'pm25_base': 32, 'no2_base': 28, 'so2_base': 7, 'o3_base': 42, 'industry': '办公'},
-    '杭州': {'province': '浙江省', 'city': '杭州市', 'district': '西湖区', 'lat': 30.27, 'lng': 120.15,
+    '杭州': {'province': '浙江省', 'city': '杭州市', 'district': '杭州市', 'lat': 30.27, 'lng': 120.15,
             'aqi_base': 50, 'pm25_base': 25, 'no2_base': 22, 'so2_base': 6, 'o3_base': 45, 'industry': '办公'},
-    '合肥': {'province': '安徽省', 'city': '合肥市', 'district': '蜀山区', 'lat': 31.82, 'lng': 117.23,
+    '合肥': {'province': '安徽省', 'city': '合肥市', 'district': '合肥市', 'lat': 31.82, 'lng': 117.23,
             'aqi_base': 62, 'pm25_base': 33, 'no2_base': 26, 'so2_base': 7, 'o3_base': 40, 'industry': '办公'},
-    '福州': {'province': '福建省', 'city': '福州市', 'district': '鼓楼区', 'lat': 26.07, 'lng': 119.30,
+    '福州': {'province': '福建省', 'city': '福州市', 'district': '福州市', 'lat': 26.07, 'lng': 119.30,
             'aqi_base': 40, 'pm25_base': 20, 'no2_base': 18, 'so2_base': 5, 'o3_base': 50, 'industry': '办公'},
-    '济南': {'province': '山东省', 'city': '济南市', 'district': '历下区', 'lat': 36.65, 'lng': 117.00,
+    '济南': {'province': '山东省', 'city': '济南市', 'district': '济南市', 'lat': 36.65, 'lng': 117.00,
             'aqi_base': 68, 'pm25_base': 36, 'no2_base': 30, 'so2_base': 8, 'o3_base': 44, 'industry': '办公'},
-    # 华南
-    '广州': {'province': '广东省', 'city': '广州市', 'district': '天河区', 'lat': 23.13, 'lng': 113.26,
+    '广州': {'province': '广东省', 'city': '广州市', 'district': '广州市', 'lat': 23.13, 'lng': 113.26,
             'aqi_base': 48, 'pm25_base': 24, 'no2_base': 22, 'so2_base': 6, 'o3_base': 52, 'industry': '办公'},
-    '深圳': {'province': '广东省', 'city': '深圳市', 'district': '南山区', 'lat': 22.54, 'lng': 113.95,
+    '深圳': {'province': '广东省', 'city': '深圳市', 'district': '深圳市', 'lat': 22.54, 'lng': 113.95,
             'aqi_base': 42, 'pm25_base': 22, 'no2_base': 20, 'so2_base': 5, 'o3_base': 50, 'industry': '办公'},
-    '南宁': {'province': '广西', 'city': '南宁市', 'district': '青秀区', 'lat': 22.82, 'lng': 108.32,
+    '南宁': {'province': '广西', 'city': '南宁市', 'district': '南宁市', 'lat': 22.82, 'lng': 108.32,
             'aqi_base': 45, 'pm25_base': 23, 'no2_base': 20, 'so2_base': 5, 'o3_base': 48, 'industry': '办公'},
-    '海口': {'province': '海南省', 'city': '海口市', 'district': '美兰区', 'lat': 20.02, 'lng': 110.35,
+    '海口': {'province': '海南省', 'city': '海口市', 'district': '海口市', 'lat': 20.02, 'lng': 110.35,
             'aqi_base': 32, 'pm25_base': 16, 'no2_base': 14, 'so2_base': 4, 'o3_base': 55, 'industry': '酒店'},
-    # 华中
-    '武汉': {'province': '湖北省', 'city': '武汉市', 'district': '武昌区', 'lat': 30.56, 'lng': 114.34,
+    '武汉': {'province': '湖北省', 'city': '武汉市', 'district': '武汉市', 'lat': 30.56, 'lng': 114.34,
             'aqi_base': 62, 'pm25_base': 33, 'no2_base': 27, 'so2_base': 7, 'o3_base': 42, 'industry': '办公'},
-    '长沙': {'province': '湖南省', 'city': '长沙市', 'district': '岳麓区', 'lat': 28.23, 'lng': 112.94,
+    '长沙': {'province': '湖南省', 'city': '长沙市', 'district': '长沙市', 'lat': 28.23, 'lng': 112.94,
             'aqi_base': 58, 'pm25_base': 30, 'no2_base': 25, 'so2_base': 7, 'o3_base': 42, 'industry': '办公'},
-    '郑州': {'province': '河南省', 'city': '郑州市', 'district': '金水区', 'lat': 34.75, 'lng': 113.65,
+    '郑州': {'province': '河南省', 'city': '郑州市', 'district': '郑州市', 'lat': 34.75, 'lng': 113.65,
             'aqi_base': 72, 'pm25_base': 38, 'no2_base': 30, 'so2_base': 9, 'o3_base': 44, 'industry': '办公'},
-    # 西南
-    '重庆': {'province': '重庆市', 'city': '重庆市', 'district': '渝中区', 'lat': 29.56, 'lng': 106.55,
-            'aqi_base': 65, 'pm25_base': 34, 'no2_base': 28, 'so2_base': 8, 'o3_base': 44, 'industry': '办公'},
-    '成都': {'province': '四川省', 'city': '成都市', 'district': '武侯区', 'lat': 30.57, 'lng': 104.07,
+    '成都': {'province': '四川省', 'city': '成都市', 'district': '成都市', 'lat': 30.57, 'lng': 104.07,
             'aqi_base': 72, 'pm25_base': 38, 'no2_base': 30, 'so2_base': 9, 'o3_base': 46, 'industry': '办公'},
-    '贵阳': {'province': '贵州省', 'city': '贵阳市', 'district': '观山湖区', 'lat': 26.65, 'lng': 106.63,
+    '贵阳': {'province': '贵州省', 'city': '贵阳市', 'district': '贵阳市', 'lat': 26.65, 'lng': 106.63,
             'aqi_base': 48, 'pm25_base': 25, 'no2_base': 22, 'so2_base': 5, 'o3_base': 40, 'industry': '办公'},
-    '昆明': {'province': '云南省', 'city': '昆明市', 'district': '盘龙区', 'lat': 25.04, 'lng': 102.68,
+    '昆明': {'province': '云南省', 'city': '昆明市', 'district': '昆明市', 'lat': 25.04, 'lng': 102.68,
             'aqi_base': 38, 'pm25_base': 20, 'no2_base': 18, 'so2_base': 5, 'o3_base': 50, 'industry': '酒店'},
-    # 西北
-    '西安': {'province': '陕西省', 'city': '西安市', 'district': '雁塔区', 'lat': 34.26, 'lng': 108.94,
+    '西安': {'province': '陕西省', 'city': '西安市', 'district': '西安市', 'lat': 34.26, 'lng': 108.94,
             'aqi_base': 78, 'pm25_base': 42, 'no2_base': 34, 'so2_base': 11, 'o3_base': 40, 'industry': '办公'},
-    '兰州': {'province': '甘肃省', 'city': '兰州市', 'district': '城关区', 'lat': 36.06, 'lng': 103.83,
+    '兰州': {'province': '甘肃省', 'city': '兰州市', 'district': '兰州市', 'lat': 36.06, 'lng': 103.83,
             'aqi_base': 80, 'pm25_base': 44, 'no2_base': 35, 'so2_base': 11, 'o3_base': 38, 'industry': '工厂'},
-    '乌鲁木齐': {'province': '新疆', 'city': '乌鲁木齐市', 'district': '天山区', 'lat': 43.83, 'lng': 87.62,
-               'aqi_base': 82, 'pm25_base': 45, 'no2_base': 35, 'so2_base': 12, 'o3_base': 38, 'industry': '工厂'},
-    # 东北
-    '沈阳': {'province': '辽宁省', 'city': '沈阳市', 'district': '和平区', 'lat': 41.80, 'lng': 123.43,
+    '沈阳': {'province': '辽宁省', 'city': '沈阳市', 'district': '沈阳市', 'lat': 41.80, 'lng': 123.43,
             'aqi_base': 70, 'pm25_base': 38, 'no2_base': 32, 'so2_base': 10, 'o3_base': 42, 'industry': '工厂'},
-    '长春': {'province': '吉林省', 'city': '长春市', 'district': '南关区', 'lat': 43.88, 'lng': 125.35,
-            'aqi_base': 68, 'pm25_base': 36, 'no2_base': 30, 'so2_base': 9, 'o3_base': 42, 'industry': '办公'},
-    '哈尔滨': {'province': '黑龙江省', 'city': '哈尔滨市', 'district': '南岗区', 'lat': 45.75, 'lng': 126.65,
-              'aqi_base': 72, 'pm25_base': 40, 'no2_base': 32, 'so2_base': 10, 'o3_base': 40, 'industry': '办公'},
+    # ======== 重庆市（到区级） ========
+    '重庆渝中': {'province': '重庆市', 'city': '重庆市', 'district': '渝中区', 'lat': 29.56, 'lng': 106.55,
+               'aqi_base': 65, 'pm25_base': 34, 'no2_base': 28, 'so2_base': 8, 'o3_base': 44, 'industry': '办公'},
+    '重庆江北': {'province': '重庆市', 'city': '重庆市', 'district': '江北区', 'lat': 29.61, 'lng': 106.57,
+               'aqi_base': 62, 'pm25_base': 32, 'no2_base': 26, 'so2_base': 7, 'o3_base': 45, 'industry': '办公'},
+    '重庆南岸': {'province': '重庆市', 'city': '重庆市', 'district': '南岸区', 'lat': 29.52, 'lng': 106.66,
+               'aqi_base': 60, 'pm25_base': 31, 'no2_base': 25, 'so2_base': 7, 'o3_base': 46, 'industry': '办公'},
+    '重庆渝北': {'province': '重庆市', 'city': '重庆市', 'district': '渝北区', 'lat': 29.72, 'lng': 106.63,
+               'aqi_base': 58, 'pm25_base': 30, 'no2_base': 24, 'so2_base': 7, 'o3_base': 47, 'industry': '办公'},
+    '重庆九龙坡': {'province': '重庆市', 'city': '重庆市', 'district': '九龙坡区', 'lat': 29.50, 'lng': 106.51,
+                 'aqi_base': 68, 'pm25_base': 36, 'no2_base': 29, 'so2_base': 9, 'o3_base': 43, 'industry': '工厂'},
+    '重庆沙坪坝': {'province': '重庆市', 'city': '重庆市', 'district': '沙坪坝区', 'lat': 29.54, 'lng': 106.46,
+                 'aqi_base': 63, 'pm25_base': 33, 'no2_base': 27, 'so2_base': 8, 'o3_base': 44, 'industry': '办公'},
 }
-
 # 模拟用户名池
 USER_POOL = [
     '张先生', '李女士', '王经理', '赵主任', '刘工程师',
@@ -392,11 +390,72 @@ def run_rotate_mode(api_endpoint, api_headers, rotate_minutes, frequency, city_n
         city_index += 1
 
 
+def run_parallel_mode(api_endpoint, api_headers, frequency, city_names=None):
+    """并行模式：多线程同时模拟多个城市"""
+    if city_names:
+        cities = [c for c in city_names if c in CITY_PROFILES]
+    else:
+        cities = list(CITY_PROFILES.keys())  # 默认全部城市
+
+    print(f"⚡ 并行模式启动，{len(cities)} 个城市同时模拟")
+    print(f"   城市: {', '.join(cities)}")
+    print()
+
+    threads = []
+    simulators = []
+
+    for i, city_name in enumerate(cities):
+        profile = CITY_PROFILES[city_name]
+        user_name = random.choice(USER_POOL)
+        sim = AirQualitySimulator(
+            city_profile=profile,
+            output_file=f'data_{city_name}.json',
+            frequency=frequency,
+            api_endpoint=api_endpoint,
+            api_headers=api_headers,
+            user_name=user_name,
+            device_prefix=f'AQ{i:02d}'
+        )
+        simulators.append(sim)
+        t = threading.Thread(target=sim.start, daemon=True)
+        threads.append(t)
+        print(f"   📡 {profile['province']} {city_name} | 设备: {sim.simulator_id} | 用户: {user_name}")
+
+    print(f"\n   {'='*50}")
+    print(f"   全部启动完成！Ctrl+C 停止")
+    print(f"   {'='*50}\n")
+
+    for t in threads:
+        t.start()
+
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n⏹ 停止所有模拟器...")
+        for sim in simulators:
+            sim.stop()
+        for t in threads:
+            t.join(timeout=2)
+        print("全部停止")
+
+
+def get_cities_by_province(province_name):
+    """根据省份名获取该省所有城市"""
+    return [name for name, profile in CITY_PROFILES.items() if profile['province'] == province_name]
+
+
+def get_all_provinces():
+    """获取所有省份列表"""
+    return sorted(set(p['province'] for p in CITY_PROFILES.values()))
+
+
 def main():
-    parser = argparse.ArgumentParser(description='空气质量数据模拟器（支持轮播模式）')
-    parser.add_argument('--mode', choices=['single', 'rotate'], default='single', help='运行模式')
+    parser = argparse.ArgumentParser(description='空气质量数据模拟器（支持单点/轮播/并行模式）')
+    parser.add_argument('--mode', choices=['single', 'rotate', 'parallel'], default='single', help='运行模式')
     parser.add_argument('--city', default='重庆', help='单点模式：城市名')
-    parser.add_argument('--cities', default='', help='轮播模式：城市列表，逗号分隔（留空=全部）')
+    parser.add_argument('--cities', default='', help='城市列表，逗号分隔（留空=全部 或 前8个）')
+    parser.add_argument('--province', default='', help='省份名，并行模式下跑该省所有城市（如：广东省、四川省）')
     parser.add_argument('--rotate-minutes', type=int, default=30, help='轮播模式：每个城市运行分钟数')
     parser.add_argument('--frequency', type=int, default=DATA_GENERATION_INTERVAL, help='数据生成频率(ms)')
     parser.add_argument('--output', default='air_quality_data.json', help='输出文件')
@@ -412,7 +471,22 @@ def main():
             key, value = header.split('=', 1)
             api_headers[key.strip()] = value.strip()
 
-    if args.mode == 'rotate':
+    # 处理 --province 参数
+    if args.province:
+        province_cities = get_cities_by_province(args.province)
+        if not province_cities:
+            print(f"未知省份: {args.province}")
+            print(f"可用省份: {', '.join(get_all_provinces())}")
+            return
+        # 省份模式强制使用并行
+        args.mode = 'parallel'
+        args.cities = ','.join(province_cities)
+        print(f"📍 省份模式: {args.province}，包含 {len(province_cities)} 个城市")
+
+    if args.mode == 'parallel':
+        city_names = [c.strip() for c in args.cities.split(',') if c.strip()] if args.cities else None
+        run_parallel_mode(args.api_endpoint, api_headers, args.frequency, city_names)
+    elif args.mode == 'rotate':
         city_names = [c.strip() for c in args.cities.split(',') if c.strip()] if args.cities else None
         run_rotate_mode(args.api_endpoint, api_headers, args.rotate_minutes, args.frequency, city_names)
     else:

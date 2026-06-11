@@ -389,8 +389,8 @@ def dashboard_trend():
             'code': 200,
             'data': [{
                 'hour': r['_id'],
-                'avg_aqi': round(r['avg_aqi'], 1),
-                'avg_pm25': round(r['avg_pm25'], 1),
+                'avg_aqi': round(r['avg_aqi'], 1) if r['avg_aqi'] else 0,
+                'avg_pm25': round(r['avg_pm25'], 1) if r['avg_pm25'] else 0,
                 'count': r['count']
             } for r in results]
         })
@@ -688,63 +688,84 @@ def dashboard_diagnostics_detail(site_id):
 # ====================================================================
 # 设备管理 API
 # ====================================================================
+# 设备管理 + device_config.json 联动
+# ====================================================================
+
+import os as _os
+
+DEVICE_CONFIG_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'device_config.json')
+
+def _load_device_config():
+    """读取 device_config.json"""
+    try:
+        with open(DEVICE_CONFIG_PATH, 'r') as f:
+            return json.load(f).get('devices', [])
+    except Exception:
+        return []
+
+def _save_device_config(devices):
+    """保存 device_config.json"""
+    try:
+        with open(DEVICE_CONFIG_PATH, 'w') as f:
+            json.dump({'devices': devices}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f'保存 device_config.json 失败: {e}')
+
 
 @admin_api.route('/devices', methods=['GET'])
 @require_admin_auth
 def get_devices():
-    """设备列表（支持分页、筛选）"""
-    page = int(request.args.get('page', 1))
-    size = int(request.args.get('size', 20))
-    keyword = request.args.get('keyword', '').strip()
-    status = request.args.get('status', '')
-    offset = (page - 1) * size
+    """设备列表（合并 MySQL devices 表 + device_config.json）"""
+    config_devices = _load_device_config()
 
+    # 转为 MySQL 兼容格式
+    config_list = []
+    for d in config_devices:
+        config_list.append({
+            'id': None,
+            'device_id': d.get('code', ''),
+            'name': d.get('name', ''),
+            'location': d.get('name', ''),
+            'latitude': d.get('latitude'),
+            'longitude': d.get('longitude'),
+            'status': 1,
+            'online': False,
+            'created_at': None,
+            'source': 'config'
+        })
+
+    # 查 MySQL
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
-            where = '1=1'
-            params = []
-            if keyword:
-                where += ' AND (d.name LIKE %s OR d.device_id LIKE %s)'
-                params.extend([f'%{keyword}%', f'%{keyword}%'])
-            if status:
-                where += ' AND d.status = %s'
-                params.append(int(status))
-
-            cur.execute(f'SELECT COUNT(*) AS cnt FROM devices d WHERE {where}', params)
-            total = cur.fetchone()['cnt']
-
-            cur.execute(
-                f'SELECT d.* FROM devices d WHERE {where} ORDER BY d.id DESC LIMIT %s OFFSET %s',
-                params + [size, offset]
-            )
-            devices = cur.fetchall()
-
-            # 获取每个设备的站点信息
-            for d in devices:
-                cur.execute(
-                    'SELECT s.id AS site_id, s.name AS site_name FROM site_devices sd '
-                    'JOIN sites s ON s.id = sd.site_id WHERE sd.device_id = %s',
-                    (d.get('device_id', d.get('id')),)
-                )
-                site = cur.fetchone()
-                d['site'] = site if site else None
+            cur.execute('SELECT * FROM devices ORDER BY id DESC')
+            mysql_devices = cur.fetchall()
+            for d in mysql_devices:
+                d['source'] = 'mysql'
+                d['location'] = d.get('name', '')
     finally:
         conn.close()
 
-    # 获取在线状态（从 MongoDB 最近 5 分钟有数据）
+    # 去重：MySQL 中已有的 device_id 不在 config 中显示
+    mysql_ids = {d['device_id'] for d in mysql_devices}
+    config_list = [d for d in config_list if d['device_id'] not in mysql_ids]
+
+    all_devices = config_list + list(mysql_devices)
+
+    # 在线状态（MongoDB）
     try:
         db = _get_mongo()
         coll = db[MONGO_COLLECTION]
         five_min_ago = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         online_ids = set(coll.distinct('device_id', {'timestamp': {'$gte': five_min_ago}}))
-        for d in devices:
-            d['online'] = d.get('device_id', d.get('id')) in online_ids
+        for d in all_devices:
+            did = d.get('device_id', '')
+            d['online'] = did in online_ids or bool(d.get('status'))
     except Exception:
-        for d in devices:
-            d['online'] = False
+        for d in all_devices:
+            d['online'] = bool(d.get('status'))
 
-    return jsonify({'code': 200, 'data': {'list': devices, 'total': total, 'page': page, 'size': size}})
+    return jsonify({'code': 200, 'data': all_devices, 'total': len(all_devices)})
 
 
 @admin_api.route('/devices/<int:device_pk_id>', methods=['GET'])
@@ -786,25 +807,40 @@ def get_device_detail(device_pk_id):
 @admin_api.route('/devices', methods=['POST'])
 @require_admin_auth
 def create_device():
-    """新增设备"""
+    """新增设备（同时写入 MySQL 和 device_config.json）"""
     body = request.json or {}
     name = body.get('name', '').strip()
     device_id = body.get('device_id', '').strip()
     if not name or not device_id:
         return jsonify({'code': 400, 'msg': '设备名称和设备ID不能为空'}), 400
 
+    # 检查 JSON 中是否已存在
+    config_devices = _load_device_config()
+    for d in config_devices:
+        if d.get('code') == device_id:
+            return jsonify({'code': 400, 'msg': '设备ID已存在于配置文件中'}), 400
+
+    # 写入 device_config.json
+    config_devices.append({
+        'code': device_id,
+        'name': name,
+        'longitude': body.get('longitude'),
+        'latitude': body.get('latitude')
+    })
+    _save_device_config(config_devices)
+
+    # 同时写入 MySQL
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
             cur.execute('SELECT id FROM devices WHERE device_id=%s', (device_id,))
             if cur.fetchone():
-                return jsonify({'code': 400, 'msg': '设备ID已存在'}), 400
+                return jsonify({'code': 200, 'msg': '设备已写入配置文件'}), 200
             cur.execute(
                 'INSERT INTO devices (name, device_id, status) VALUES (%s, %s, %s)',
                 (name, device_id, body.get('status', 1))
             )
             new_id = cur.lastrowid
-            # 绑定站点
             site_id = body.get('site_id')
             if site_id:
                 cur.execute('INSERT IGNORE INTO site_devices (site_id, device_id) VALUES (%s, %s)', (site_id, device_id))
@@ -813,7 +849,7 @@ def create_device():
     finally:
         conn.close()
 
-    return jsonify({'code': 200, 'data': {'id': new_id}, 'msg': '设备已添加'})
+    return jsonify({'code': 200, 'msg': '设备已添加'})
 
 
 @admin_api.route('/devices/<int:device_pk_id>', methods=['PUT'])
@@ -853,21 +889,33 @@ def update_device(device_pk_id):
     return jsonify({'code': 200, 'msg': '设备已更新'})
 
 
-@admin_api.route('/devices/<int:device_pk_id>', methods=['DELETE'])
+@admin_api.route('/devices/<path:device_identifier>', methods=['DELETE'])
 @require_admin_auth
-def delete_device(device_pk_id):
-    """删除设备"""
+def delete_device(device_identifier):
+    """删除设备（从 MySQL 或 JSON 中移除）"""
+    # 先从 JSON 中移除
+    config_devices = _load_device_config()
+    new_list = [d for d in config_devices if d.get('code') != device_identifier]
+    if len(new_list) != len(config_devices):
+        _save_device_config(new_list)
+
+    # 再尝试从 MySQL 移除
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT device_id FROM devices WHERE id=%s', (device_pk_id,))
-            device = cur.fetchone()
-            if not device:
-                return jsonify({'code': 404, 'msg': '设备不存在'}), 404
-            cur.execute('DELETE FROM devices WHERE id=%s', (device_pk_id,))
-            cur.execute('DELETE FROM site_devices WHERE device_id=%s', (device['device_id'],))
+            try:
+                pk_id = int(device_identifier)
+                cur.execute('SELECT device_id FROM devices WHERE id=%s', (pk_id,))
+                device = cur.fetchone()
+            except ValueError:
+                cur.execute('SELECT device_id FROM devices WHERE device_id=%s', (device_identifier,))
+                device = cur.fetchone()
+
+            if device:
+                cur.execute('DELETE FROM devices WHERE device_id=%s', (device['device_id'],))
+                cur.execute('DELETE FROM site_devices WHERE device_id=%s', (device['device_id'],))
+                _log_action('删除设备', 'device', device_identifier)
         conn.commit()
-        _log_action('删除设备', 'device', device_pk_id)
     finally:
         conn.close()
 
@@ -2059,7 +2107,7 @@ def _get_primary_pollutant(pm25, no2, so2, o3):
     return candidates[0][0]
 
 
-@admin_api.route('/api/admin/analytics/poor-air-users', methods=['GET'])
+@admin_api.route('/analytics/poor-air-users', methods=['GET'])
 @require_admin_auth
 def get_poor_air_users():
     """筛选空气质量差的用户/设备"""
@@ -2188,11 +2236,10 @@ def get_poor_air_users():
     })
 
 
-@admin_api.route('/api/admin/analytics/poor-air-users/export', methods=['GET'])
+@admin_api.route('/analytics/poor-air-users/export', methods=['GET'])
 @require_admin_auth
 def export_poor_air_users():
     """导出空气质量差用户 CSV"""
-    # 复用查询逻辑
     from flask import Response
     import io, csv
 
@@ -2284,7 +2331,7 @@ def export_poor_air_users():
     )
 
 
-@admin_api.route('/api/admin/reports/enterprise', methods=['POST'])
+@admin_api.route('/reports/enterprise', methods=['POST'])
 @require_admin_auth
 def generate_enterprise_report():
     """生成企业级报告"""
@@ -2417,6 +2464,9 @@ def generate_enterprise_report():
     try:
         ai_content = _call_deepseek(prompt)
     except Exception:
+        ai_content = None
+
+    if not ai_content:
         ai_content = f"""【{report_title}】
 
 执行摘要：
@@ -2468,7 +2518,7 @@ def generate_enterprise_report():
     })
 
 
-@admin_api.route('/api/admin/reports/<int:rid>/preview', methods=['GET'])
+@admin_api.route('/reports/<int:rid>/preview', methods=['GET'])
 @require_admin_auth
 def preview_report(rid):
     """报告预览"""
@@ -2490,7 +2540,7 @@ def preview_report(rid):
 #  产品型号管理
 # ============================================================
 
-@admin_api.route('/api/admin/products', methods=['GET'])
+@admin_api.route('/products', methods=['GET'])
 @require_admin_auth
 def list_products():
     """产品型号列表"""
@@ -2499,17 +2549,14 @@ def list_products():
         with conn.cursor() as cur:
             cur.execute('SELECT * FROM product_models ORDER BY id DESC')
             products = cur.fetchall()
-            # 统计每个型号的设备数
             for p in products:
-                cur.execute('SELECT COUNT(*) AS cnt FROM devices WHERE product_model_id = %s', (p['id'],))
-                row = cur.fetchone()
-                p['device_count'] = row['cnt'] if row else 0
+                p['device_count'] = 0  # devices 表暂无 product_model_id 字段
     finally:
         conn.close()
     return jsonify({'code': 200, 'data': products})
 
 
-@admin_api.route('/api/admin/products', methods=['POST'])
+@admin_api.route('/products', methods=['POST'])
 @require_admin_auth
 def create_product():
     """新增产品型号"""
@@ -2532,7 +2579,7 @@ def create_product():
     return jsonify({'code': 200, 'data': {'id': pid}})
 
 
-@admin_api.route('/api/admin/products/<int:pid>', methods=['PUT'])
+@admin_api.route('/products/<int:pid>', methods=['PUT'])
 @require_admin_auth
 def update_product(pid):
     """更新产品型号"""
@@ -2556,7 +2603,7 @@ def update_product(pid):
     return jsonify({'code': 200, 'msg': '更新成功'})
 
 
-@admin_api.route('/api/admin/products/<int:pid>', methods=['DELETE'])
+@admin_api.route('/products/<int:pid>', methods=['DELETE'])
 @require_admin_auth
 def delete_product(pid):
     """删除产品型号"""
@@ -2574,7 +2621,7 @@ def delete_product(pid):
 #  客户管理 CRM
 # ============================================================
 
-@admin_api.route('/api/admin/customers', methods=['GET'])
+@admin_api.route('/customers', methods=['GET'])
 @require_admin_auth
 def list_customers():
     """客户列表"""
@@ -2601,9 +2648,9 @@ def list_customers():
             cur.execute(f'SELECT * FROM customers {where} ORDER BY id DESC', params)
             customers = cur.fetchall()
 
-            # 统计每个客户的设备数
+            # 统计每个客户的设备数（通过工单关联）
             for c in customers:
-                cur.execute('SELECT COUNT(*) AS cnt FROM devices WHERE customer_id = %s', (c['id'],))
+                cur.execute('SELECT COUNT(*) AS cnt FROM work_orders WHERE customer_id = %s', (c['id'],))
                 row = cur.fetchone()
                 c['device_count'] = row['cnt'] if row else 0
     finally:
@@ -2611,7 +2658,7 @@ def list_customers():
     return jsonify({'code': 200, 'data': customers})
 
 
-@admin_api.route('/api/admin/customers', methods=['POST'])
+@admin_api.route('/customers', methods=['POST'])
 @require_admin_auth
 def create_customer():
     """新增客户"""
@@ -2635,7 +2682,7 @@ def create_customer():
     return jsonify({'code': 200, 'data': {'id': cid}})
 
 
-@admin_api.route('/api/admin/customers/<int:cid>', methods=['PUT'])
+@admin_api.route('/customers/<int:cid>', methods=['PUT'])
 @require_admin_auth
 def update_customer(cid):
     """更新客户"""
@@ -2659,7 +2706,7 @@ def update_customer(cid):
     return jsonify({'code': 200, 'msg': '更新成功'})
 
 
-@admin_api.route('/api/admin/customers/<int:cid>', methods=['DELETE'])
+@admin_api.route('/customers/<int:cid>', methods=['DELETE'])
 @require_admin_auth
 def delete_customer(cid):
     """删除客户"""
@@ -2691,7 +2738,7 @@ def _gen_order_no():
     return f'WO-{today}-{count:03d}'
 
 
-@admin_api.route('/api/admin/workorders', methods=['GET'])
+@admin_api.route('/workorders', methods=['GET'])
 @require_admin_auth
 def list_workorders():
     """工单列表"""
@@ -2729,7 +2776,7 @@ def list_workorders():
     return jsonify({'code': 200, 'data': orders})
 
 
-@admin_api.route('/api/admin/workorders', methods=['POST'])
+@admin_api.route('/workorders', methods=['POST'])
 @require_admin_auth
 def create_workorder():
     """新增工单"""
@@ -2755,7 +2802,7 @@ def create_workorder():
     return jsonify({'code': 200, 'data': {'id': wid, 'order_no': order_no}})
 
 
-@admin_api.route('/api/admin/workorders/<int:wid>', methods=['PUT'])
+@admin_api.route('/workorders/<int:wid>', methods=['PUT'])
 @require_admin_auth
 def update_workorder(wid):
     """更新工单"""
@@ -2783,7 +2830,7 @@ def update_workorder(wid):
     return jsonify({'code': 200, 'msg': '更新成功'})
 
 
-@admin_api.route('/api/admin/workorders/<int:wid>', methods=['DELETE'])
+@admin_api.route('/workorders/<int:wid>', methods=['DELETE'])
 @require_admin_auth
 def delete_workorder(wid):
     """删除工单"""
@@ -2801,7 +2848,20 @@ def delete_workorder(wid):
 #  Dashboard 厂商经营指标
 # ============================================================
 
-@admin_api.route('/api/admin/dashboard/device-distribution', methods=['GET'])
+@admin_api.route('/geo/province/<code>', methods=['GET'])
+def proxy_province_geojson(code):
+    """代理省份 GeoJSON 数据（避免跨域）"""
+    try:
+        resp = _requests.get(
+            f'https://geo.datav.aliyun.com/areas_v3/bound/{code}_full.json',
+            timeout=10, verify=False
+        )
+        return jsonify(resp.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_api.route('/dashboard/device-distribution', methods=['GET'])
 @require_admin_auth
 def get_device_distribution():
     """按省份/城市聚合设备分布数据（从 MongoDB location 字段读取）"""
@@ -2920,7 +2980,7 @@ def get_device_distribution():
     return jsonify({'code': 200, 'data': {'provinces': provinces}})
 
 
-@admin_api.route('/api/admin/dashboard/vendor-stats', methods=['GET'])
+@admin_api.route('/dashboard/vendor-stats', methods=['GET'])
 @require_admin_auth
 def get_vendor_stats():
     """厂商经营指标统计"""
