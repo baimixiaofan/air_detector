@@ -1,68 +1,76 @@
 <template>
   <div class="page-container">
-    <PageHeader title="设备管理" :subtitle="`共 ${tableData.length} 台设备`">
+    <PageHeader title="设备管理" :subtitle="`共 ${tableData.length} 台，已激活 ${statusCount('activated')} 台`">
       <el-button type="primary" @click="handleAdd">
-        <el-icon><Plus /></el-icon>添加设备
+        <el-icon><Plus /></el-icon>出厂添加设备
       </el-button>
     </PageHeader>
 
     <DashboardCard>
       <el-table :data="filteredData" v-loading="loading" stripe max-height="600">
-        <el-table-column prop="device_id" label="设备编码" min-width="150" />
-        <el-table-column prop="location" label="位置/名称" min-width="150">
-          <template #default="{ row }">{{ row.location || row.name || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="经纬度" width="180">
+        <el-table-column prop="device_id" label="设备编码" min-width="160" />
+        <el-table-column prop="name" label="名称" min-width="120" />
+        <el-table-column label="状态" width="150">
           <template #default="{ row }">
-            <span v-if="row.latitude && row.longitude">{{ row.latitude }}, {{ row.longitude }}</span>
-            <span v-else class="text-muted">未设置</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="在线状态" width="100" align="center">
-          <template #default="{ row }">
-            <span class="status-badge" :class="row.online ? 'status-badge--success' : 'status-badge--default'">
-              <span class="status-dot" :class="{ 'status-dot--pulse': row.online }"></span>
-              {{ row.online ? '在线' : '离线' }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="来源" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.source === 'config' ? '' : 'primary'" size="small">
-              {{ row.source === 'config' ? '配置文件' : 'MySQL' }}
+            <el-tag v-if="row.activation_status === 'manufactured'" type="info" size="small">已出厂未激活</el-tag>
+            <el-tag v-else-if="row.activation_status === 'activated'" :type="row.online ? 'success' : 'warning'" size="small">
+              {{ row.online ? '在线' : '已激活离线' }}
             </el-tag>
+            <el-tag v-else type="danger" size="small">已注销</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" width="160">
+        <el-table-column label="位置" min-width="140">
           <template #default="{ row }">
-            <span v-if="row.created_at">{{ formatDateTime(row.created_at) }}</span>
-            <span v-else class="text-muted">配置文件</span>
+            {{ [row.district, roomMap[row.room_location]].filter(Boolean).join(' · ') || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column prop="product_model" label="型号" width="120" />
+        <el-table-column label="客户" width="120">
+          <template #default="{ row }">{{ row.customer_name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button link type="danger" @click="handleDelete(row)">
-              <el-icon><Delete /></el-icon>
-            </el-button>
+            <el-button v-if="row.activation_status === 'manufactured'" text type="success" size="small" @click="handleActivate(row)">激活</el-button>
+            <el-button text type="primary" size="small" @click="handleEdit(row)">编辑</el-button>
+            <el-button text type="danger" size="small" @click="handleDelete(row)">注销</el-button>
           </template>
         </el-table-column>
       </el-table>
     </DashboardCard>
 
-    <!-- 新增设备对话框 -->
-    <el-dialog v-model="dialogVisible" title="添加设备" width="460px">
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="设备编码" required>
-          <el-input v-model="form.device_id" placeholder="如：CQ_008" />
-        </el-form-item>
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑设备' : '出厂添加设备'" width="520px">
+      <el-form :model="form" label-width="100px">
         <el-form-item label="设备名称" required>
-          <el-input v-model="form.name" placeholder="如：重庆-江北嘴" />
+          <el-input v-model="form.name" placeholder="如：渝中区办公室监测仪" />
         </el-form-item>
-        <el-form-item label="纬度">
-          <el-input-number v-model="form.latitude" :precision="2" style="width: 100%" />
+        <el-form-item label="设备型号">
+          <el-input v-model="form.product_model" placeholder="如：AirMonitor Pro 2025" />
         </el-form-item>
-        <el-form-item label="经度">
-          <el-input-number v-model="form.longitude" :precision="2" style="width: 100%" />
+        <el-form-item label="精确到区">
+          <el-input v-model="form.district" placeholder="如：渝中区" />
+        </el-form-item>
+        <el-form-item label="房间位置">
+          <el-select v-model="form.room_location" placeholder="选择位置" clearable style="width:100%">
+            <el-option label="客厅" value="living_room" />
+            <el-option label="卧室" value="bedroom" />
+            <el-option label="厨房" value="kitchen" />
+            <el-option label="书房" value="study" />
+            <el-option label="阳台" value="balcony" />
+            <el-option label="餐厅" value="dining_room" />
+            <el-option label="卫生间" value="bathroom" />
+            <el-option label="门厅" value="hall" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="绑定客户">
+          <el-select v-model="form.customer_id" placeholder="选择客户" clearable style="width:100%">
+            <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="经纬度">
+          <div style="display:flex;gap:8px">
+            <el-input-number v-model="form.latitude" :precision="2" placeholder="纬度" style="flex:1" />
+            <el-input-number v-model="form.longitude" :precision="2" placeholder="经度" style="flex:1" />
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -75,79 +83,100 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getDevices, createDevice, deleteDevice } from '@/api/devices'
+import { getDevices, createDevice, updateDevice, deleteDevice } from '@/api/devices'
+import { getCustomers } from '@/api/customers'
 import PageHeader from '@/components/common/PageHeader.vue'
 import DashboardCard from '@/components/common/DashboardCard.vue'
-import { formatDateTime } from '@/utils/format'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
-const tableData = ref([])
-const dialogVisible = ref(false)
 const submitting = ref(false)
-
-const filters = ref({ status: '', keyword: '' })
+const tableData = ref([])
+const customers = ref([])
+const dialogVisible = ref(false)
+const isEdit = ref(false)
+const filters = ref({ keyword: '' })
 
 const form = ref({
-  device_id: '',
-  name: '',
-  latitude: null,
-  longitude: null
+  name: '', product_model: '', district: '', room_location: '',
+  customer_id: null, latitude: null, longitude: null, _id: null
 })
+
+const roomMap = {
+  living_room: '客厅', bedroom: '卧室', kitchen: '厨房',
+  study: '书房', balcony: '阳台', dining_room: '餐厅', bathroom: '卫生间', hall: '门厅'
+}
 
 const filteredData = computed(() => {
   return tableData.value.filter(d => {
-    if (filters.value.status === 'online' && !d.online) return false
-    if (filters.value.status === 'offline' && d.online) return false
-    if (filters.value.keyword && !d.device_id.includes(filters.value.keyword)) return false
+    if (filters.value.keyword && !d.device_id?.includes(filters.value.keyword) && !d.name?.includes(filters.value.keyword)) return false
     return true
   })
 })
 
+function statusCount(s) {
+  return tableData.value.filter(d => d.activation_status === s).length
+}
+
 async function fetchData() {
   loading.value = true
   try {
-    const res = await getDevices()
-    if (res.code === 200) {
-      tableData.value = Array.isArray(res.data) ? res.data : (res.data?.list || [])
+    const [devRes, cusRes] = await Promise.all([getDevices(), getCustomers()])
+    if (devRes.code === 200) {
+      tableData.value = Array.isArray(devRes.data) ? devRes.data : (devRes.data?.list || [])
     }
+    if (cusRes.code === 200) customers.value = cusRes.data || []
   } finally { loading.value = false }
 }
 
 function handleAdd() {
-  form.value = { device_id: '', name: '', latitude: null, longitude: null }
+  isEdit.value = false
+  form.value = { name: '', product_model: '', district: '', room_location: '', customer_id: null, latitude: null, longitude: null, _id: null }
+  dialogVisible.value = true
+}
+
+function handleEdit(row) {
+  isEdit.value = true
+  form.value = {
+    name: row.name || '', product_model: row.product_model || '', district: row.district || '',
+    room_location: row.room_location || '', customer_id: row.customer_id || null,
+    latitude: row.latitude, longitude: row.longitude, _id: row.id
+  }
   dialogVisible.value = true
 }
 
 async function handleSubmit() {
-  if (!form.value.device_id || !form.value.name) {
-    return ElMessage.warning('请填写设备编码和名称')
+  if (isEdit.value) {
+    if (!form.value.name) return ElMessage.warning('请填写名称')
+    submitting.value = true
+    try {
+      const res = await updateDevice(form.value._id, form.value)
+      if (res.code === 200) ElMessage.success('已更新')
+      dialogVisible.value = false; fetchData()
+    } finally { submitting.value = false }
+    return
   }
+  if (!form.value.name) return ElMessage.warning('请填写设备名称')
   submitting.value = true
   try {
     const res = await createDevice(form.value)
     if (res.code === 200) {
-      ElMessage.success('设备已添加，已同步到 device_config.json')
-      dialogVisible.value = false
-      fetchData()
-    } else {
-      ElMessage.error(res.msg || '添加失败')
+      ElMessage.success(`设备 ${res.data.device_id} 已添加（未激活）`)
+      dialogVisible.value = false; fetchData()
     }
   } finally { submitting.value = false }
 }
 
+async function handleActivate(row) {
+  await ElMessageBox.confirm(`确认激活「${row.device_id}」？`, '激活确认')
+  const res = await updateDevice(row.id, { activation_status: 'activated' })
+  if (res.code === 200) { ElMessage.success('已激活'); fetchData() }
+}
+
 async function handleDelete(row) {
-  try {
-    await ElMessageBox.confirm(`确认删除设备「${row.device_id}」？同时会从配置文件中移除。`, '提示')
-    // 直接调 API 删除 JSON 中的设备
-    const res = await deleteDevice(row.device_id)
-    if (res.code === 200) {
-      ElMessage.success('已删除')
-      fetchData()
-    } else {
-      ElMessage.error(res.msg || '删除失败')
-    }
-  } catch { /* cancelled */ }
+  await ElMessageBox.confirm(`确认注销「${row.device_id}」？`, '提示')
+  const res = await deleteDevice(row.device_id)
+  if (res.code === 200) { ElMessage.success('已注销'); fetchData() }
 }
 
 onMounted(fetchData)

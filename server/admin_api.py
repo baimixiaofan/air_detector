@@ -734,15 +734,19 @@ def get_devices():
             'source': 'config'
         })
 
-    # 查 MySQL
+    # 查 MySQL（关联客户名称）
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT * FROM devices ORDER BY id DESC')
+            cur.execute('''
+                SELECT d.*, c.name AS customer_name
+                FROM devices d
+                LEFT JOIN customers c ON d.customer_id = c.id
+                ORDER BY d.id DESC
+            ''')
             mysql_devices = cur.fetchall()
             for d in mysql_devices:
                 d['source'] = 'mysql'
-                d['location'] = d.get('name', '')
     finally:
         conn.close()
 
@@ -807,49 +811,51 @@ def get_device_detail(device_pk_id):
 @admin_api.route('/devices', methods=['POST'])
 @require_admin_auth
 def create_device():
-    """新增设备（同时写入 MySQL 和 device_config.json）"""
+    """新增设备（自动生成设备编码 + 生命周期管理）"""
+    from datetime import datetime
     body = request.json or {}
     name = body.get('name', '').strip()
-    device_id = body.get('device_id', '').strip()
-    if not name or not device_id:
-        return jsonify({'code': 400, 'msg': '设备名称和设备ID不能为空'}), 400
+    if not name:
+        return jsonify({'code': 400, 'msg': '设备名称不能为空'}), 400
 
-    # 检查 JSON 中是否已存在
-    config_devices = _load_device_config()
-    for d in config_devices:
-        if d.get('code') == device_id:
-            return jsonify({'code': 400, 'msg': '设备ID已存在于配置文件中'}), 400
-
-    # 写入 device_config.json
-    config_devices.append({
-        'code': device_id,
-        'name': name,
-        'longitude': body.get('longitude'),
-        'latitude': body.get('latitude')
-    })
-    _save_device_config(config_devices)
-
-    # 同时写入 MySQL
+    # 自动生成设备编码：AQ-YYYYMMDD-NNN
+    today = datetime.now().strftime('%Y%m%d')
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
-            cur.execute('SELECT id FROM devices WHERE device_id=%s', (device_id,))
-            if cur.fetchone():
-                return jsonify({'code': 200, 'msg': '设备已写入配置文件'}), 200
-            cur.execute(
-                'INSERT INTO devices (name, device_id, status) VALUES (%s, %s, %s)',
-                (name, device_id, body.get('status', 1))
-            )
+            cur.execute("SELECT COUNT(*) AS cnt FROM devices WHERE device_id LIKE %s", (f'AQ-{today}-%',))
+            count = cur.fetchone()['cnt'] + 1
+            device_id = f'AQ-{today}-{count:03d}'
+
+            cur.execute('''
+                INSERT INTO devices (device_id, name, location_name, longitude, latitude,
+                    activation_status, room_location, customer_id, district, product_model)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (
+                device_id, name,
+                body.get('location_name', ''),
+                body.get('longitude'), body.get('latitude'),
+                'manufactured',  # 默认：已出厂未激活
+                body.get('room_location', ''),
+                body.get('customer_id'),
+                body.get('district', ''),
+                body.get('product_model', '')
+            ))
             new_id = cur.lastrowid
-            site_id = body.get('site_id')
-            if site_id:
-                cur.execute('INSERT IGNORE INTO site_devices (site_id, device_id) VALUES (%s, %s)', (site_id, device_id))
         conn.commit()
-        _log_action('新增设备', 'device', new_id, {'name': name, 'device_id': device_id})
     finally:
         conn.close()
 
-    return jsonify({'code': 200, 'msg': '设备已添加'})
+    # 也写入 device_config.json
+    config_devices = _load_device_config()
+    config_devices.append({
+        'code': device_id, 'name': name,
+        'longitude': body.get('longitude'), 'latitude': body.get('latitude')
+    })
+    _save_device_config(config_devices)
+
+    _log_action('新增设备', 'device', new_id, {'device_id': device_id, 'name': name})
+    return jsonify({'code': 200, 'data': {'id': new_id, 'device_id': device_id}, 'msg': f'设备 {device_id} 已创建'})
 
 
 @admin_api.route('/devices/<int:device_pk_id>', methods=['PUT'])
@@ -865,27 +871,22 @@ def update_device(device_pk_id):
             if not device:
                 return jsonify({'code': 404, 'msg': '设备不存在'}), 404
 
-            fields = []
-            params = []
-            for key in ('name', 'status', 'device_id'):
-                if key in body:
-                    fields.append(f'{key}=%s')
-                    params.append(body[key])
+            updatable = ['name', 'location_name', 'longitude', 'latitude', 'activation_status',
+                         'room_location', 'customer_id', 'district', 'product_model']
+            fields = [f'{k}=%s' for k in updatable if k in body]
+            params = [body[k] for k in updatable if k in body]
+
+            # 如果激活设备，记录激活时间
+            if body.get('activation_status') == 'activated' and device.get('activation_status') != 'activated':
+                fields.append('activated_at=NOW()')
+                _log_action('激活设备', 'device', device_pk_id, {'device_id': device.get('device_id')})
+
             if fields:
                 params.append(device_pk_id)
                 cur.execute(f'UPDATE devices SET {", ".join(fields)} WHERE id=%s', params)
-
-            # 更新站点绑定
-            if 'site_id' in body:
-                old_did = device.get('device_id', device.get('id'))
-                cur.execute('DELETE FROM site_devices WHERE device_id=%s', (old_did,))
-                if body['site_id']:
-                    cur.execute('INSERT IGNORE INTO site_devices (site_id, device_id) VALUES (%s, %s)', (body['site_id'], old_did))
         conn.commit()
-        _log_action('更新设备', 'device', device_pk_id, body)
     finally:
         conn.close()
-
     return jsonify({'code': 200, 'msg': '设备已更新'})
 
 
@@ -2534,87 +2535,6 @@ def preview_report(rid):
         return jsonify({'code': 404, 'msg': '报告不存在'})
 
     return jsonify({'code': 200, 'data': report})
-
-
-# ============================================================
-#  产品型号管理
-# ============================================================
-
-@admin_api.route('/products', methods=['GET'])
-@require_admin_auth
-def list_products():
-    """产品型号列表"""
-    conn = _get_mysql()
-    try:
-        with conn.cursor() as cur:
-            cur.execute('SELECT * FROM product_models ORDER BY id DESC')
-            products = cur.fetchall()
-            for p in products:
-                p['device_count'] = 0  # devices 表暂无 product_model_id 字段
-    finally:
-        conn.close()
-    return jsonify({'code': 200, 'data': products})
-
-
-@admin_api.route('/products', methods=['POST'])
-@require_admin_auth
-def create_product():
-    """新增产品型号"""
-    data = request.get_json() or {}
-    if not data.get('name'):
-        return jsonify({'code': 400, 'msg': '产品名称不能为空'})
-    conn = _get_mysql()
-    try:
-        with conn.cursor() as cur:
-            cur.execute('''
-                INSERT INTO product_models (name, product_line, sensor_types, description, status)
-                VALUES (%s, %s, %s, %s, %s)
-            ''', (data['name'], data.get('product_line', ''), data.get('sensor_types', ''),
-                  data.get('description', ''), data.get('status', 1)))
-            pid = cur.lastrowid
-        conn.commit()
-    finally:
-        conn.close()
-    _log_action('create_product', 'product', str(pid), f'新增产品型号：{data["name"]}')
-    return jsonify({'code': 200, 'data': {'id': pid}})
-
-
-@admin_api.route('/products/<int:pid>', methods=['PUT'])
-@require_admin_auth
-def update_product(pid):
-    """更新产品型号"""
-    data = request.get_json() or {}
-    conn = _get_mysql()
-    try:
-        with conn.cursor() as cur:
-            fields = []
-            values = []
-            for k in ['name', 'product_line', 'sensor_types', 'description', 'status']:
-                if k in data:
-                    fields.append(f'{k} = %s')
-                    values.append(data[k])
-            if not fields:
-                return jsonify({'code': 400, 'msg': '无更新字段'})
-            values.append(pid)
-            cur.execute(f'UPDATE product_models SET {", ".join(fields)} WHERE id = %s', values)
-        conn.commit()
-    finally:
-        conn.close()
-    return jsonify({'code': 200, 'msg': '更新成功'})
-
-
-@admin_api.route('/products/<int:pid>', methods=['DELETE'])
-@require_admin_auth
-def delete_product(pid):
-    """删除产品型号"""
-    conn = _get_mysql()
-    try:
-        with conn.cursor() as cur:
-            cur.execute('DELETE FROM product_models WHERE id = %s', (pid,))
-        conn.commit()
-    finally:
-        conn.close()
-    return jsonify({'code': 200, 'msg': '删除成功'})
 
 
 # ============================================================

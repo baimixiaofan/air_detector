@@ -71,7 +71,6 @@ const role = computed(() => userStore.role)
 const allMenuItems = [
   { path: '/dashboard', title: '数据看板', icon: 'Monitor', roles: ['admin', 'ops', 'viewer'] },
   { path: '/map', title: '全国分布', icon: 'MapLocation', roles: ['admin', 'ops', 'viewer'] },
-  { path: '/products', title: '产品型号', icon: 'Box', roles: ['admin', 'ops'] },
   { path: '/customers', title: '客户管理', icon: 'UserFilled', roles: ['admin', 'ops'] },
   { path: '/devices', title: '设备管理', icon: 'Cpu', roles: ['admin', 'ops', 'viewer'] },
   { path: '/workorders', title: '售后工单', icon: 'Tickets', roles: ['admin', 'ops'] },
