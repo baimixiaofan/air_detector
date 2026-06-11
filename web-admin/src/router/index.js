@@ -83,12 +83,6 @@ const routes = [
         ]
       },
       {
-        path: 'products',
-        name: 'Products',
-        component: () => import('@/views/products/ProductList.vue'),
-        meta: { roles: ['admin', 'ops'], title: '产品型号', icon: 'Box' }
-      },
-      {
         path: 'customers',
         name: 'Customers',
         component: () => import('@/views/customers/CustomerList.vue'),
