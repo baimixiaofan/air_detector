@@ -1,12 +1,12 @@
 <template>
   <el-container class="app-layout">
     <SidebarMenu />
-    <el-container>
+    <el-container class="app-layout__main">
       <Navbar />
       <el-main class="app-main">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" />
+        <router-view v-slot="{ Component, route }">
+          <transition name="page-content" mode="out-in">
+            <component :is="Component" :key="route.path" />
           </transition>
         </router-view>
       </el-main>
@@ -22,21 +22,38 @@ import Navbar from './Navbar.vue'
 <style scoped>
 .app-layout {
   height: 100vh;
+  overflow: hidden;
+}
+
+.app-layout__main {
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .app-main {
   background: var(--page-bg);
   padding: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
+/* Page Content Transition */
+.page-content-enter-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.fade-enter-from,
-.fade-leave-to {
+.page-content-leave-active {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.page-content-enter-from {
   opacity: 0;
+  transform: translateY(12px);
+}
+
+.page-content-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 </style>

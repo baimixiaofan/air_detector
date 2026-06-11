@@ -177,6 +177,11 @@ def receive_air_quality_data():
                 "client_ip": client_ip,
                 "server_time": datetime.now().isoformat()
             }
+            # 存储地理位置和用户标签（新字段）
+            if data.get('location'):
+                record["location"] = json.dumps(data['location'])
+            if data.get('user'):
+                record["user_info"] = json.dumps(data['user'])
             try:
                 push_to_redis_stream(record)
                 return jsonify({

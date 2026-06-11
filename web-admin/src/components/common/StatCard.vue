@@ -64,7 +64,7 @@ const trendColor = computed(() => {
   if (props.color) return props.color
   if (props.variant === 'dark') return '#ffffff'
   if (props.variant === 'gradient') return '#ffffff'
-  return '#e17055'
+  return '#007AFF'
 })
 
 const trendPoints = computed(() => {
@@ -80,44 +80,48 @@ const trendPoints = computed(() => {
 
 <style scoped>
 .stat-card {
-  border-radius: var(--radius-md);
-  padding: 20px;
+  border-radius: var(--radius-lg);
+  padding: 24px;
   position: relative;
   overflow: hidden;
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  transition: all var(--transition-normal);
   display: flex;
   flex-direction: column;
   justify-content: center;
   box-sizing: border-box;
 }
+
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
 }
 
-/* Light variant (default) */
+/* Light variant */
 .stat-card--light {
   background: var(--card-bg);
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--card-border);
+  backdrop-filter: var(--glass-blur);
 }
 
 /* Dark variant */
 .stat-card--dark {
   background: var(--kpi-dark-bg);
-  color: var(--text-inverse);
+  border: 1px solid var(--card-border);
+  backdrop-filter: var(--glass-blur);
+  color: var(--text-primary);
 }
 
 /* Gradient variant */
 .stat-card--gradient {
-  background: var(--color-primary-gradient);
-  color: var(--text-inverse);
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  color: #fff;
 }
 
 .stat-card__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .stat-card__title {
@@ -131,6 +135,7 @@ const trendPoints = computed(() => {
   cursor: pointer;
   transition: opacity var(--transition-fast);
 }
+
 .stat-card__settings:hover {
   opacity: 1;
 }
@@ -150,27 +155,38 @@ const trendPoints = computed(() => {
   font-size: var(--font-size-kpi);
   font-weight: 700;
   line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .stat-card__change {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   font-size: var(--font-size-caption);
   font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 8px;
 }
+
 .stat-card__change--up {
-  color: #ff6b6b;
+  background: rgba(255, 69, 58, 0.15);
+  color: var(--color-danger);
 }
+
 .stat-card__change--down {
-  color: #51cf66;
+  background: rgba(48, 209, 88, 0.15);
+  color: var(--color-success);
 }
+
 .stat-card--dark .stat-card__change--up,
 .stat-card--gradient .stat-card__change--up {
+  background: rgba(255, 69, 58, 0.2);
   color: #ff8787;
 }
+
 .stat-card--dark .stat-card__change--down,
 .stat-card--gradient .stat-card__change--down {
+  background: rgba(48, 209, 88, 0.2);
   color: #69db7c;
 }
 
@@ -181,9 +197,10 @@ const trendPoints = computed(() => {
 }
 
 .stat-card__trend {
-  margin-top: 12px;
+  margin-top: 16px;
   height: 30px;
 }
+
 .stat-card__trend svg {
   width: 100%;
   height: 100%;

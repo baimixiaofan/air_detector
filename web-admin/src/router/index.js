@@ -21,6 +21,12 @@ const routes = [
         meta: { roles: ['admin', 'ops', 'viewer'], title: '数据看板', icon: 'Monitor' }
       },
       {
+        path: 'map',
+        name: 'ChinaMap',
+        component: () => import('@/views/map/ChinaMapView.vue'),
+        meta: { roles: ['admin', 'ops', 'viewer'], title: '全国分布', icon: 'MapLocation' }
+      },
+      {
         path: 'sites',
         name: 'Sites',
         component: () => import('@/views/sites/SiteList.vue'),
@@ -77,22 +83,40 @@ const routes = [
         ]
       },
       {
+        path: 'products',
+        name: 'Products',
+        component: () => import('@/views/products/ProductList.vue'),
+        meta: { roles: ['admin', 'ops'], title: '产品型号', icon: 'Box' }
+      },
+      {
+        path: 'customers',
+        name: 'Customers',
+        component: () => import('@/views/customers/CustomerList.vue'),
+        meta: { roles: ['admin', 'ops'], title: '客户管理', icon: 'UserFilled' }
+      },
+      {
+        path: 'workorders',
+        name: 'WorkOrders',
+        component: () => import('@/views/workorders/WorkOrderList.vue'),
+        meta: { roles: ['admin', 'ops'], title: '售后工单', icon: 'Tickets' }
+      },
+      {
         path: 'rankings',
         name: 'Rankings',
         component: () => import('@/views/rankings/RankingsView.vue'),
         meta: { roles: ['admin', 'ops', 'viewer'], title: '区域排行', icon: 'Trophy' }
       },
       {
+        path: 'analytics',
+        name: 'Analytics',
+        component: () => import('@/views/analytics/PoorAirUsers.vue'),
+        meta: { roles: ['admin', 'ops'], title: '数据分析', icon: 'DataAnalysis' }
+      },
+      {
         path: 'reports',
         name: 'Reports',
         component: () => import('@/views/reports/ReportsView.vue'),
-        meta: { roles: ['admin', 'ops', 'viewer'], title: '数据简报', icon: 'Document' }
-      },
-      {
-        path: 'recommendations',
-        name: 'Recommendations',
-        component: () => import('@/views/recommendations/RecommendationsView.vue'),
-        meta: { roles: ['admin', 'ops', 'viewer'], title: '产品推荐', icon: 'Present' }
+        meta: { roles: ['admin', 'ops', 'viewer'], title: '数据报告', icon: 'Document' }
       },
       {
         path: 'alerts',

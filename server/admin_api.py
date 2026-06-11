@@ -298,11 +298,10 @@ def dashboard_stats():
 @admin_api.route('/dashboard/realtime', methods=['GET'])
 @require_admin_auth
 def dashboard_realtime():
-    """所有活跃设备最新 AQI 数据"""
+    """所有活跃设备最新 AQI 数据（含地理位置和用户标签）"""
     try:
         db = _get_mongo()
         coll = db[MONGO_COLLECTION]
-        # 取每个设备最新一条
         device_ids = coll.distinct('device_id')
         results = []
         for did in device_ids:
@@ -312,6 +311,8 @@ def dashboard_realtime():
             )
             if doc:
                 data = doc.get('data', {})
+                loc = doc.get('location', {})
+                user = doc.get('user_info', {})
                 results.append({
                     'device_id': did,
                     'aqi': data.get('AQI'),
@@ -320,7 +321,18 @@ def dashboard_realtime():
                     'so2': data.get('SO₂'),
                     'o3': data.get('O₃'),
                     'timestamp': doc.get('timestamp'),
-                    'server_time': doc.get('server_time')
+                    'server_time': doc.get('server_time'),
+                    'location': {
+                        'province': loc.get('province', ''),
+                        'city': loc.get('city', ''),
+                        'district': loc.get('district', ''),
+                        'latitude': loc.get('latitude'),
+                        'longitude': loc.get('longitude')
+                    } if loc else None,
+                    'user_info': {
+                        'name': user.get('name', ''),
+                        'industry': user.get('industry', '')
+                    } if user else None
                 })
         results.sort(key=lambda x: x.get('device_id', ''))
         return jsonify({'code': 200, 'data': results})
@@ -2009,3 +2021,966 @@ def get_map_data():
         })
 
     return jsonify({'code': 200, 'data': map_data})
+
+
+# ============================================================
+#  空气质量差用户分析 + 企业报告
+# ============================================================
+
+def _get_health_level(aqi):
+    """根据 AQI 返回健康等级"""
+    if aqi is None:
+        return {'key': 'unknown', 'label': '未知', 'color': '#999'}
+    if aqi <= 50:
+        return {'key': 'good', 'label': '优秀', 'color': '#34C759'}
+    if aqi <= 100:
+        return {'key': 'moderate', 'label': '良好', 'color': '#FF9500'}
+    if aqi <= 150:
+        return {'key': 'lightly_polluted', 'label': '轻度污染', 'color': '#FF6B00'}
+    if aqi <= 200:
+        return {'key': 'moderately_polluted', 'label': '中度污染', 'color': '#FF3B30'}
+    return {'key': 'heavily_polluted', 'label': '重度污染', 'color': '#8B0000'}
+
+
+def _get_primary_pollutant(pm25, no2, so2, o3):
+    """判定主要污染物"""
+    candidates = []
+    if pm25 and pm25 > 75:
+        candidates.append(('PM2.5', pm25 / 75))
+    if no2 and no2 > 80:
+        candidates.append(('NO₂', no2 / 80))
+    if so2 and so2 > 50:
+        candidates.append(('SO₂', so2 / 50))
+    if o3 and o3 > 100:
+        candidates.append(('O₃', o3 / 100))
+    if not candidates:
+        return '无'
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    return candidates[0][0]
+
+
+@admin_api.route('/api/admin/analytics/poor-air-users', methods=['GET'])
+@require_admin_auth
+def get_poor_air_users():
+    """筛选空气质量差的用户/设备"""
+    days = int(request.args.get('days', 30))
+    aqi_threshold = float(request.args.get('aqi_threshold', 100))
+    min_exceed_days = int(request.args.get('min_exceed_days', 7))
+    area = request.args.get('area', '')
+
+    # 从 MongoDB 聚合：按 device_id 计算最近 N 天的平均 AQI 和超标天数
+    mongo = _get_mongo()
+    coll = mongo[MONGO_COLLECTION]
+    from datetime import datetime, timedelta
+    since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    pipeline = [
+        {'$match': {'timestamp': {'$gte': since}}},
+        {'$group': {
+            '_id': '$device_id',
+            'avg_aqi': {'$avg': '$data.AQI'},
+            'max_aqi': {'$max': '$data.AQI'},
+            'avg_pm25': {'$avg': '$data.PM₂.₅'},
+            'avg_no2': {'$avg': '$data.NO₂'},
+            'avg_so2': {'$avg': '$data.SO₂'},
+            'avg_o3': {'$avg': '$data.O₃'},
+            'total_records': {'$sum': 1},
+            'exceed_days': {
+                '$sum': {
+                    '$cond': [{'$gte': ['$data.AQI', aqi_threshold]}, 1, 0]
+                }
+            }
+        }},
+        {'$match': {'exceed_days': {'$gte': min_exceed_days}}},
+        {'$sort': {'avg_aqi': -1}}
+    ]
+
+    results = list(coll.aggregate(pipeline))
+
+    # 关联 MySQL 查询用户和站点信息
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            # 获取所有用户-设备绑定
+            cur.execute('''
+                SELECT ud.device_id, ud.open_id, ud.room_location,
+                       u.nickname, u.avatar_url
+                FROM user_devices ud
+                LEFT JOIN users u ON ud.open_id = u.open_id
+            ''')
+            user_map = {}
+            for row in cur.fetchall():
+                user_map[row['device_id']] = row
+
+            # 获取所有站点-设备绑定
+            cur.execute('''
+                SELECT sd.device_id, s.name AS site_name, s.area, s.site_type
+                FROM site_devices sd
+                JOIN sites s ON sd.site_id = s.id
+            ''')
+            site_map = {}
+            for row in cur.fetchall():
+                site_map[row['device_id']] = row
+
+            # 获取设备注册信息
+            cur.execute('SELECT device_id, location_name FROM devices')
+            device_map = {}
+            for row in cur.fetchall():
+                device_map[row['device_id']] = row
+    finally:
+        conn.close()
+
+    # 组装结果
+    data = []
+    for r in results:
+        device_id = r['_id']
+        avg_aqi = round(r['avg_aqi'], 1) if r['avg_aqi'] else 0
+        max_aqi = round(r['max_aqi'], 1) if r['max_aqi'] else 0
+        avg_pm25 = round(r['avg_pm25'], 1) if r['avg_pm25'] else 0
+        avg_no2 = round(r['avg_no2'], 1) if r['avg_no2'] else 0
+        avg_so2 = round(r['avg_so2'], 1) if r['avg_so2'] else 0
+        avg_o3 = round(r['avg_o3'], 1) if r['avg_o3'] else 0
+
+        # 按区域筛选
+        site_info = site_map.get(device_id, {})
+        if area and site_info.get('area', '') != area:
+            continue
+
+        user_info = user_map.get(device_id, {})
+        device_info = device_map.get(device_id, {})
+
+        data.append({
+            'device_id': device_id,
+            'nickname': user_info.get('nickname', '未绑定用户'),
+            'room_location': user_info.get('room_location', ''),
+            'site_name': site_info.get('site_name', '未关联站点'),
+            'area': site_info.get('area', '未知区域'),
+            'site_type': site_info.get('site_type', ''),
+            'location_name': device_info.get('location_name', ''),
+            'avg_aqi': avg_aqi,
+            'max_aqi': max_aqi,
+            'avg_pm25': avg_pm25,
+            'avg_no2': avg_no2,
+            'avg_so2': avg_so2,
+            'avg_o3': avg_o3,
+            'exceed_days': r['exceed_days'],
+            'total_records': r['total_records'],
+            'health_level': _get_health_level(avg_aqi),
+            'primary_pollutant': _get_primary_pollutant(avg_pm25, avg_no2, avg_so2, avg_o3)
+        })
+
+    # 统计汇总
+    total_users = len(data)
+    total_avg_aqi = round(sum(d['avg_aqi'] for d in data) / total_users, 1) if total_users else 0
+
+    return jsonify({
+        'code': 200,
+        'data': {
+            'list': data,
+            'summary': {
+                'total_users': total_users,
+                'total_avg_aqi': total_avg_aqi,
+                'days': days,
+                'aqi_threshold': aqi_threshold,
+                'min_exceed_days': min_exceed_days
+            }
+        }
+    })
+
+
+@admin_api.route('/api/admin/analytics/poor-air-users/export', methods=['GET'])
+@require_admin_auth
+def export_poor_air_users():
+    """导出空气质量差用户 CSV"""
+    # 复用查询逻辑
+    from flask import Response
+    import io, csv
+
+    days = int(request.args.get('days', 30))
+    aqi_threshold = float(request.args.get('aqi_threshold', 100))
+    min_exceed_days = int(request.args.get('min_exceed_days', 7))
+    area = request.args.get('area', '')
+
+    mongo = _get_mongo()
+    coll = mongo[MONGO_COLLECTION]
+    from datetime import datetime, timedelta
+    since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    pipeline = [
+        {'$match': {'timestamp': {'$gte': since}}},
+        {'$group': {
+            '_id': '$device_id',
+            'avg_aqi': {'$avg': '$data.AQI'},
+            'max_aqi': {'$max': '$data.AQI'},
+            'avg_pm25': {'$avg': '$data.PM₂.₅'},
+            'avg_no2': {'$avg': '$data.NO₂'},
+            'avg_so2': {'$avg': '$data.SO₂'},
+            'avg_o3': {'$avg': '$data.O₃'},
+            'exceed_days': {
+                '$sum': {'$cond': [{'$gte': ['$data.AQI', aqi_threshold]}, 1, 0]}
+            }
+        }},
+        {'$match': {'exceed_days': {'$gte': min_exceed_days}}},
+        {'$sort': {'avg_aqi': -1}}
+    ]
+    results = list(coll.aggregate(pipeline))
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''
+                SELECT ud.device_id, u.nickname
+                FROM user_devices ud LEFT JOIN users u ON ud.open_id = u.open_id
+            ''')
+            user_map = {r['device_id']: r for r in cur.fetchall()}
+
+            cur.execute('''
+                SELECT sd.device_id, s.name AS site_name, s.area
+                FROM site_devices sd JOIN sites s ON sd.site_id = s.id
+            ''')
+            site_map = {r['device_id']: r for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['设备ID', '用户昵称', '站点', '区域', '平均AQI', '最大AQI',
+                     '平均PM2.5', '平均NO₂', '平均SO₂', '平均O₃', '超标天数', '健康等级', '主要污染物'])
+
+    for r in results:
+        device_id = r['_id']
+        avg_aqi = round(r['avg_aqi'], 1) if r['avg_aqi'] else 0
+        site = site_map.get(device_id, {})
+        if area and site.get('area', '') != area:
+            continue
+        user = user_map.get(device_id, {})
+        health = _get_health_level(avg_aqi)
+        writer.writerow([
+            device_id,
+            user.get('nickname', '未绑定'),
+            site.get('site_name', ''),
+            site.get('area', ''),
+            avg_aqi,
+            round(r['max_aqi'], 1) if r['max_aqi'] else 0,
+            round(r['avg_pm25'], 1) if r['avg_pm25'] else 0,
+            round(r['avg_no2'], 1) if r['avg_no2'] else 0,
+            round(r['avg_so2'], 1) if r['avg_so2'] else 0,
+            round(r['avg_o3'], 1) if r['avg_o3'] else 0,
+            r['exceed_days'],
+            health['label'],
+            _get_primary_pollutant(
+                r.get('avg_pm25'), r.get('avg_no2'),
+                r.get('avg_so2'), r.get('avg_o3')
+            )
+        ])
+
+    csv_content = output.getvalue()
+    output.close()
+
+    return Response(
+        '﻿' + csv_content,
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename=poor_air_users_{days}d.csv'}
+    )
+
+
+@admin_api.route('/api/admin/reports/enterprise', methods=['POST'])
+@require_admin_auth
+def generate_enterprise_report():
+    """生成企业级报告"""
+    data = request.get_json() or {}
+    company_name = data.get('company_name', '客户')
+    report_title = data.get('report_title', '空气质量分析报告')
+    report_type = data.get('report_type', 'monthly')
+    site_ids = data.get('site_ids', [])
+    metrics = data.get('metrics', ['AQI', 'PM2.5'])
+    highlights = data.get('highlights', [])
+    style = data.get('style', 'formal')
+
+    # 确定查询天数
+    days_map = {'daily': 1, 'weekly': 7, 'monthly': 30, 'quarterly': 90}
+    days = days_map.get(report_type, 30)
+
+    # 查询站点绑定的设备
+    conn = _get_mysql()
+    device_ids = []
+    site_names = []
+    try:
+        with conn.cursor() as cur:
+            if site_ids:
+                placeholders = ','.join(['%s'] * len(site_ids))
+                cur.execute(f'SELECT id, name FROM sites WHERE id IN ({placeholders})', site_ids)
+                site_names = [r['name'] for r in cur.fetchall()]
+
+                cur.execute(f'SELECT device_id FROM site_devices WHERE site_id IN ({placeholders})', site_ids)
+                device_ids = [r['device_id'] for r in cur.fetchall()]
+            else:
+                cur.execute('SELECT device_id FROM site_devices')
+                device_ids = [r['device_id'] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+    # 从 MongoDB 聚合数据
+    mongo = _get_mongo()
+    coll = mongo[MONGO_COLLECTION]
+    from datetime import datetime, timedelta
+    since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    match_filter = {'timestamp': {'$gte': since}}
+    if device_ids:
+        match_filter['device_id'] = {'$in': device_ids}
+
+    pipeline = [
+        {'$match': match_filter},
+        {'$group': {
+            '_id': None,
+            'avg_aqi': {'$avg': '$data.AQI'},
+            'max_aqi': {'$max': '$data.AQI'},
+            'min_aqi': {'$min': '$data.AQI'},
+            'avg_pm25': {'$avg': '$data.PM₂.₅'},
+            'avg_no2': {'$avg': '$data.NO₂'},
+            'avg_so2': {'$avg': '$data.SO₂'},
+            'avg_o3': {'$avg': '$data.O₃'},
+            'total_records': {'$sum': 1},
+            'device_count': {'$addToSet': '$device_id'}
+        }}
+    ]
+    agg = list(coll.aggregate(pipeline))
+
+    if not agg:
+        stats = {'avg_aqi': 0, 'max_aqi': 0, 'min_aqi': 0, 'avg_pm25': 0,
+                 'avg_no2': 0, 'avg_so2': 0, 'avg_o3': 0, 'total_records': 0, 'device_count': 0}
+    else:
+        a = agg[0]
+        stats = {
+            'avg_aqi': round(a.get('avg_aqi', 0) or 0, 1),
+            'max_aqi': round(a.get('max_aqi', 0) or 0, 1),
+            'min_aqi': round(a.get('min_aqi', 0) or 0, 1),
+            'avg_pm25': round(a.get('avg_pm25', 0) or 0, 1),
+            'avg_no2': round(a.get('avg_no2', 0) or 0, 1),
+            'avg_so2': round(a.get('avg_so2', 0) or 0, 1),
+            'avg_o3': round(a.get('avg_o3', 0) or 0, 1),
+            'total_records': a.get('total_records', 0),
+            'device_count': len(a.get('device_count', []))
+        }
+
+    # 计算达标率（AQI <= 100 的比例）
+    if stats['total_records'] > 0:
+        exceed_pipeline = [
+            {'$match': match_filter},
+            {'$group': {
+                '_id': None,
+                'good_count': {'$sum': {'$cond': [{'$lte': ['$data.AQI', 100]}, 1, 0]}}
+            }}
+        ]
+        exceed_agg = list(coll.aggregate(exceed_pipeline))
+        good_count = exceed_agg[0]['good_count'] if exceed_agg else 0
+        stats['compliance_rate'] = round(good_count / stats['total_records'] * 100, 1)
+    else:
+        stats['compliance_rate'] = 0
+
+    # 调用 DeepSeek AI 生成报告
+    health = _get_health_level(stats['avg_aqi'])
+    highlights_text = '；'.join(highlights) if highlights else '无'
+    sites_text = '、'.join(site_names) if site_names else '全部站点'
+
+    period_map = {'daily': '日', 'weekly': '周', 'monthly': '月', 'quarterly': '季度'}
+    period = period_map.get(report_type, '月')
+
+    prompt = f"""你是一位专业的空气质量分析师，请为以下企业客户撰写一份正式的空气质量{period}度报告。
+
+客户公司：{company_name}
+报告标题：{report_title}
+监测范围：{sites_text}
+监测设备数：{stats['device_count']} 台
+监测数据量：{stats['total_records']} 条
+报告期间：最近 {days} 天
+
+数据统计：
+- 平均AQI：{stats['avg_aqi']}（等级：{health['label']}）
+- AQI范围：{stats['min_aqi']} ~ {stats['max_aqi']}
+- 平均PM2.5：{stats['avg_pm25']} μg/m³
+- 平均NO₂：{stats['avg_no2']} μg/m³
+- 平均SO₂：{stats['avg_so2']} μg/m³
+- 平均O₃：{stats['avg_o3']} μg/m³
+- 空气质量达标率：{stats['compliance_rate']}%
+
+客户指定亮点：{highlights_text}
+
+要求：
+1. 报告风格：{'正式、专业、数据驱动' if style == 'formal' else '简洁、易读、图文并茂'}
+2. 报告结构：执行摘要 → 核心数据分析 → 趋势解读 → 改善建议 → 总结
+3. 语言要专业但易懂，适合企业决策者阅读
+4. 如有客户亮点，要在报告中突出展示
+5. 报告长度：500-800字"""
+
+    try:
+        ai_content = _call_deepseek(prompt)
+    except Exception:
+        ai_content = f"""【{report_title}】
+
+执行摘要：
+本{period}度监测期间，{company_name}旗下 {stats['device_count']} 台监测设备共采集 {stats['total_records']} 条空气质量数据。
+
+核心数据：
+- 空气质量指数（AQI）均值为 {stats['avg_aqi']}，整体空气质量等级为"{health['label']}"
+- PM2.5均值 {stats['avg_pm25']} μg/m³，NO₂均值 {stats['avg_no2']} μg/m³
+- 空气质量达标率为 {stats['compliance_rate']}%
+
+改善建议：
+建议持续关注空气质量变化趋势，针对重点污染源采取改善措施，确保室内环境健康达标。"""
+
+    # 写入数据库
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''
+                INSERT INTO intelligence_reports
+                (title, report_type, site_id, content, summary, generated_by, status,
+                 company_name, report_style, report_period, metrics_included)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (
+                report_title, report_type,
+                site_ids[0] if site_ids else None,
+                ai_content, ai_content[:200],
+                'enterprise', 'completed',
+                company_name, style, f'最近{days}天',
+                ','.join(metrics)
+            ))
+            report_id = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    _log_action('generate_enterprise_report', 'report', str(report_id),
+                   f'生成企业报告：{company_name} - {report_title}')
+
+    return jsonify({
+        'code': 200,
+        'data': {
+            'id': report_id,
+            'title': report_title,
+            'company_name': company_name,
+            'content': ai_content,
+            'stats': stats,
+            'report_type': report_type
+        }
+    })
+
+
+@admin_api.route('/api/admin/reports/<int:rid>/preview', methods=['GET'])
+@require_admin_auth
+def preview_report(rid):
+    """报告预览"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM intelligence_reports WHERE id = %s', (rid,))
+            report = cur.fetchone()
+    finally:
+        conn.close()
+
+    if not report:
+        return jsonify({'code': 404, 'msg': '报告不存在'})
+
+    return jsonify({'code': 200, 'data': report})
+
+
+# ============================================================
+#  产品型号管理
+# ============================================================
+
+@admin_api.route('/api/admin/products', methods=['GET'])
+@require_admin_auth
+def list_products():
+    """产品型号列表"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT * FROM product_models ORDER BY id DESC')
+            products = cur.fetchall()
+            # 统计每个型号的设备数
+            for p in products:
+                cur.execute('SELECT COUNT(*) AS cnt FROM devices WHERE product_model_id = %s', (p['id'],))
+                row = cur.fetchone()
+                p['device_count'] = row['cnt'] if row else 0
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'data': products})
+
+
+@admin_api.route('/api/admin/products', methods=['POST'])
+@require_admin_auth
+def create_product():
+    """新增产品型号"""
+    data = request.get_json() or {}
+    if not data.get('name'):
+        return jsonify({'code': 400, 'msg': '产品名称不能为空'})
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''
+                INSERT INTO product_models (name, product_line, sensor_types, description, status)
+                VALUES (%s, %s, %s, %s, %s)
+            ''', (data['name'], data.get('product_line', ''), data.get('sensor_types', ''),
+                  data.get('description', ''), data.get('status', 1)))
+            pid = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+    _log_action('create_product', 'product', str(pid), f'新增产品型号：{data["name"]}')
+    return jsonify({'code': 200, 'data': {'id': pid}})
+
+
+@admin_api.route('/api/admin/products/<int:pid>', methods=['PUT'])
+@require_admin_auth
+def update_product(pid):
+    """更新产品型号"""
+    data = request.get_json() or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            fields = []
+            values = []
+            for k in ['name', 'product_line', 'sensor_types', 'description', 'status']:
+                if k in data:
+                    fields.append(f'{k} = %s')
+                    values.append(data[k])
+            if not fields:
+                return jsonify({'code': 400, 'msg': '无更新字段'})
+            values.append(pid)
+            cur.execute(f'UPDATE product_models SET {", ".join(fields)} WHERE id = %s', values)
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '更新成功'})
+
+
+@admin_api.route('/api/admin/products/<int:pid>', methods=['DELETE'])
+@require_admin_auth
+def delete_product(pid):
+    """删除产品型号"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM product_models WHERE id = %s', (pid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '删除成功'})
+
+
+# ============================================================
+#  客户管理 CRM
+# ============================================================
+
+@admin_api.route('/api/admin/customers', methods=['GET'])
+@require_admin_auth
+def list_customers():
+    """客户列表"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            # 筛选
+            conditions = []
+            params = []
+            ctype = request.args.get('type')
+            industry = request.args.get('industry')
+            status = request.args.get('status')
+            if ctype:
+                conditions.append('type = %s')
+                params.append(ctype)
+            if industry:
+                conditions.append('industry = %s')
+                params.append(industry)
+            if status:
+                conditions.append('status = %s')
+                params.append(status)
+
+            where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
+            cur.execute(f'SELECT * FROM customers {where} ORDER BY id DESC', params)
+            customers = cur.fetchall()
+
+            # 统计每个客户的设备数
+            for c in customers:
+                cur.execute('SELECT COUNT(*) AS cnt FROM devices WHERE customer_id = %s', (c['id'],))
+                row = cur.fetchone()
+                c['device_count'] = row['cnt'] if row else 0
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'data': customers})
+
+
+@admin_api.route('/api/admin/customers', methods=['POST'])
+@require_admin_auth
+def create_customer():
+    """新增客户"""
+    data = request.get_json() or {}
+    if not data.get('name'):
+        return jsonify({'code': 400, 'msg': '客户名称不能为空'})
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''
+                INSERT INTO customers (name, type, contact_name, phone, email, address, industry, status, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (data['name'], data.get('type', 'enterprise'), data.get('contact_name', ''),
+                  data.get('phone', ''), data.get('email', ''), data.get('address', ''),
+                  data.get('industry', ''), data.get('status', 'active'), data.get('notes', '')))
+            cid = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+    _log_action('create_customer', 'customer', str(cid), f'新增客户：{data["name"]}')
+    return jsonify({'code': 200, 'data': {'id': cid}})
+
+
+@admin_api.route('/api/admin/customers/<int:cid>', methods=['PUT'])
+@require_admin_auth
+def update_customer(cid):
+    """更新客户"""
+    data = request.get_json() or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            fields = []
+            values = []
+            for k in ['name', 'type', 'contact_name', 'phone', 'email', 'address', 'industry', 'status', 'notes']:
+                if k in data:
+                    fields.append(f'{k} = %s')
+                    values.append(data[k])
+            if not fields:
+                return jsonify({'code': 400, 'msg': '无更新字段'})
+            values.append(cid)
+            cur.execute(f'UPDATE customers SET {", ".join(fields)} WHERE id = %s', values)
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '更新成功'})
+
+
+@admin_api.route('/api/admin/customers/<int:cid>', methods=['DELETE'])
+@require_admin_auth
+def delete_customer(cid):
+    """删除客户"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM customers WHERE id = %s', (cid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '删除成功'})
+
+
+# ============================================================
+#  售后工单
+# ============================================================
+
+def _gen_order_no():
+    """生成工单编号 WO-YYYYMMDD-NNN"""
+    from datetime import datetime
+    today = datetime.now().strftime('%Y%m%d')
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS cnt FROM work_orders WHERE order_no LIKE %s", (f'WO-{today}-%',))
+            count = cur.fetchone()['cnt'] + 1
+    finally:
+        conn.close()
+    return f'WO-{today}-{count:03d}'
+
+
+@admin_api.route('/api/admin/workorders', methods=['GET'])
+@require_admin_auth
+def list_workorders():
+    """工单列表"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            conditions = []
+            params = []
+            status = request.args.get('status')
+            priority = request.args.get('priority')
+            wtype = request.args.get('type')
+            if status:
+                conditions.append('w.status = %s')
+                params.append(status)
+            if priority:
+                conditions.append('w.priority = %s')
+                params.append(priority)
+            if wtype:
+                conditions.append('w.type = %s')
+                params.append(wtype)
+
+            where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
+            cur.execute(f'''
+                SELECT w.*, c.name AS customer_name
+                FROM work_orders w
+                LEFT JOIN customers c ON w.customer_id = c.id
+                {where}
+                ORDER BY
+                    CASE w.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                    w.created_at DESC
+            ''', params)
+            orders = cur.fetchall()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'data': orders})
+
+
+@admin_api.route('/api/admin/workorders', methods=['POST'])
+@require_admin_auth
+def create_workorder():
+    """新增工单"""
+    data = request.get_json() or {}
+    if not data.get('title'):
+        return jsonify({'code': 400, 'msg': '工单标题不能为空'})
+    order_no = _gen_order_no()
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('''
+                INSERT INTO work_orders (order_no, type, priority, device_id, customer_id, title, description, status, assignee)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (order_no, data.get('type', 'fault'), data.get('priority', 'medium'),
+                  data.get('device_id'), data.get('customer_id'),
+                  data['title'], data.get('description', ''),
+                  'pending', data.get('assignee', '')))
+            wid = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+    _log_action('create_workorder', 'workorder', str(wid), f'新增工单：{order_no} - {data["title"]}')
+    return jsonify({'code': 200, 'data': {'id': wid, 'order_no': order_no}})
+
+
+@admin_api.route('/api/admin/workorders/<int:wid>', methods=['PUT'])
+@require_admin_auth
+def update_workorder(wid):
+    """更新工单"""
+    data = request.get_json() or {}
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            fields = []
+            values = []
+            for k in ['type', 'priority', 'device_id', 'customer_id', 'title', 'description',
+                       'status', 'assignee', 'result']:
+                if k in data:
+                    fields.append(f'{k} = %s')
+                    values.append(data[k])
+            # 如果状态改为 closed，记录关闭时间
+            if data.get('status') == 'closed':
+                fields.append('closed_at = NOW()')
+            if not fields:
+                return jsonify({'code': 400, 'msg': '无更新字段'})
+            values.append(wid)
+            cur.execute(f'UPDATE work_orders SET {", ".join(fields)} WHERE id = %s', values)
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '更新成功'})
+
+
+@admin_api.route('/api/admin/workorders/<int:wid>', methods=['DELETE'])
+@require_admin_auth
+def delete_workorder(wid):
+    """删除工单"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM work_orders WHERE id = %s', (wid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '删除成功'})
+
+
+# ============================================================
+#  Dashboard 厂商经营指标
+# ============================================================
+
+@admin_api.route('/api/admin/dashboard/device-distribution', methods=['GET'])
+@require_admin_auth
+def get_device_distribution():
+    """按省份/城市聚合设备分布数据（从 MongoDB location 字段读取）"""
+    from datetime import datetime, timedelta
+    mongo = _get_mongo()
+    coll = mongo[MONGO_COLLECTION]
+
+    # 5 分钟前的时间，用于判断在线
+    five_min_ago = (datetime.now() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+
+    # 获取所有设备最新一条记录
+    device_ids = coll.distinct('device_id')
+    device_latest = []
+    for did in device_ids:
+        doc = coll.find_one({'device_id': did}, sort=[('timestamp', pymongo.DESCENDING)])
+        if doc:
+            device_latest.append(doc)
+
+    # 按省份聚合
+    province_map = {}
+    # 省份 code 映射
+    province_codes = {
+        '北京市': '110000', '天津市': '120000', '河北省': '130000', '山西省': '140000',
+        '内蒙古': '150000', '辽宁省': '210000', '吉林省': '220000', '黑龙江省': '230000',
+        '上海市': '310000', '江苏省': '320000', '浙江省': '330000', '安徽省': '340000',
+        '福建省': '350000', '江西省': '360000', '山东省': '370000', '河南省': '410000',
+        '湖北省': '420000', '湖南省': '430000', '广东省': '440000', '广西': '450000',
+        '海南省': '460000', '重庆市': '500000', '四川省': '510000', '贵州省': '520000',
+        '云南省': '530000', '西藏': '540000', '陕西省': '610000', '甘肃省': '620000',
+        '青海省': '630000', '宁夏': '640000', '新疆': '650000', '台湾省': '710000',
+        '香港': '810000', '澳门': '820000',
+    }
+
+    for doc in device_latest:
+        loc = doc.get('location', {})
+        province = loc.get('province', '未知')
+        city = loc.get('city', '未知')
+        district = loc.get('district', '未知')
+        data = doc.get('data', {})
+        aqi = data.get('AQI', 0)
+        is_online = doc.get('timestamp', '') >= five_min_ago
+
+        if province not in province_map:
+            province_map[province] = {
+                'name': province,
+                'code': province_codes.get(province, ''),
+                'devices': 0, 'online': 0,
+                'aqi_sum': 0, 'pm25_sum': 0,
+                'cities': {}
+            }
+        p = province_map[province]
+        p['devices'] += 1
+        if is_online:
+            p['online'] += 1
+        p['aqi_sum'] += aqi or 0
+        p['pm25_sum'] += data.get('PM₂.₅', 0) or 0
+
+        if city not in p['cities']:
+            p['cities'][city] = {
+                'name': city, 'devices': 0, 'online': 0,
+                'aqi_sum': 0, 'pm25_sum': 0, 'districts': {}
+            }
+        c = p['cities'][city]
+        c['devices'] += 1
+        if is_online:
+            c['online'] += 1
+        c['aqi_sum'] += aqi or 0
+        c['pm25_sum'] += data.get('PM₂.₅', 0) or 0
+
+        if district not in c['districts']:
+            c['districts'][district] = {
+                'name': district, 'devices': 0, 'online': 0,
+                'aqi_sum': 0, 'device_list': []
+            }
+        d = c['districts'][district]
+        d['devices'] += 1
+        if is_online:
+            d['online'] += 1
+        d['aqi_sum'] += aqi or 0
+        d['device_list'].append({
+            'device_id': doc.get('device_id'),
+            'aqi': aqi,
+            'online': is_online,
+            'user': doc.get('user_info', {}).get('name', ''),
+            'industry': doc.get('user_info', {}).get('industry', '')
+        })
+
+    # 格式化输出
+    provinces = []
+    for pname, pdata in province_map.items():
+        cities = []
+        for cname, cdata in pdata['cities'].items():
+            districts = []
+            for dname, ddata in cdata['districts'].items():
+                avg_aqi = round(ddata['aqi_sum'] / ddata['devices'], 1) if ddata['devices'] else 0
+                districts.append({
+                    'name': dname, 'devices': ddata['devices'], 'online': ddata['online'],
+                    'avg_aqi': avg_aqi, 'device_list': ddata['device_list']
+                })
+            avg_aqi = round(cdata['aqi_sum'] / cdata['devices'], 1) if cdata['devices'] else 0
+            avg_pm25 = round(cdata['pm25_sum'] / cdata['devices'], 1) if cdata['devices'] else 0
+            cities.append({
+                'name': cname, 'devices': cdata['devices'], 'online': cdata['online'],
+                'avg_aqi': avg_aqi, 'avg_pm25': avg_pm25, 'districts': districts
+            })
+        avg_aqi = round(pdata['aqi_sum'] / pdata['devices'], 1) if pdata['devices'] else 0
+        avg_pm25 = round(pdata['pm25_sum'] / pdata['devices'], 1) if pdata['devices'] else 0
+        provinces.append({
+            'name': pname, 'code': pdata['code'],
+            'devices': pdata['devices'], 'online': pdata['online'],
+            'avg_aqi': avg_aqi, 'avg_pm25': avg_pm25,
+            'cities': sorted(cities, key=lambda x: x['devices'], reverse=True)
+        })
+
+    provinces.sort(key=lambda x: x['devices'], reverse=True)
+    return jsonify({'code': 200, 'data': {'provinces': provinces}})
+
+
+@admin_api.route('/api/admin/dashboard/vendor-stats', methods=['GET'])
+@require_admin_auth
+def get_vendor_stats():
+    """厂商经营指标统计"""
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            # 设备总数和在线数
+            cur.execute('SELECT COUNT(*) AS total FROM devices')
+            total_devices = cur.fetchone()['total']
+
+            # 本月新增设备
+            cur.execute("SELECT COUNT(*) AS cnt FROM devices WHERE create_time >= DATE_FORMAT(NOW(), '%%Y-%%m-01')")
+            new_devices_month = cur.fetchone()['cnt']
+
+            # 客户数
+            cur.execute("SELECT COUNT(*) AS total FROM customers WHERE status = 'active'")
+            total_customers = cur.fetchone()['total']
+
+            # 本月新增客户
+            cur.execute("SELECT COUNT(*) AS cnt FROM customers WHERE created_at >= DATE_FORMAT(NOW(), '%%Y-%%m-01')")
+            new_customers_month = cur.fetchone()['cnt']
+
+            # 待处理工单
+            cur.execute("SELECT COUNT(*) AS cnt FROM work_orders WHERE status = 'pending'")
+            pending_orders = cur.fetchone()['cnt']
+
+            # 处理中工单
+            cur.execute("SELECT COUNT(*) AS cnt FROM work_orders WHERE status = 'processing'")
+            processing_orders = cur.fetchone()['cnt']
+
+            # 产品型号数
+            cur.execute("SELECT COUNT(*) AS total FROM product_models WHERE status = 1")
+            total_products = cur.fetchone()['total']
+
+            # 本月告警数
+            cur.execute("SELECT COUNT(*) AS cnt FROM alert_records WHERE created_at >= DATE_FORMAT(NOW(), '%%Y-%%m-01')")
+            alerts_month = cur.fetchone()['cnt']
+    finally:
+        conn.close()
+
+    # 从 MongoDB 获取在线设备数
+    mongo = _get_mongo()
+    coll = mongo[MONGO_COLLECTION]
+    from datetime import datetime, timedelta
+    five_min_ago = (datetime.now() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+    online_devices = len(coll.distinct('device_id', {'timestamp': {'$gte': five_min_ago}}))
+
+    return jsonify({
+        'code': 200,
+        'data': {
+            'total_devices': total_devices,
+            'online_devices': online_devices,
+            'offline_devices': total_devices - online_devices,
+            'online_rate': round(online_devices / total_devices * 100, 1) if total_devices else 0,
+            'new_devices_month': new_devices_month,
+            'total_customers': total_customers,
+            'new_customers_month': new_customers_month,
+            'pending_orders': pending_orders,
+            'processing_orders': processing_orders,
+            'total_products': total_products,
+            'alerts_month': alerts_month
+        }
+    })

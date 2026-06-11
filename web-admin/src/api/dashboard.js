@@ -23,3 +23,11 @@ export function getDiagnostics() {
 export function getDiagnosticsDetail(siteId) {
   return request.get(`/admin/dashboard/diagnostics/${siteId}`)
 }
+
+export function getDeviceDistribution() {
+  return request.get('/admin/dashboard/device-distribution')
+}
+
+export function getVendorStats() {
+  return request.get('/admin/dashboard/vendor-stats')
+}

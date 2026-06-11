@@ -1,51 +1,86 @@
 <template>
-  <div class="login-container">
+  <div class="login-page">
+    <!-- 左侧品牌区域 -->
     <div class="login-left">
-      <div class="login-brand">
-        <div class="brand-icon">
-          <el-icon :size="40" color="#fff"><Monitor /></el-icon>
+      <div class="left-content">
+        <div class="brand-logo">
+          <span class="logo-emoji">🌬️</span>
         </div>
-        <h1 class="brand-title">空气质量监测</h1>
-        <p class="brand-subtitle">企业级环境数据管理平台</p>
+        <h1 class="brand-title">
+          <span class="title-main">AirInsight</span>
+          <span class="title-sub">智能空气分析平台</span>
+        </h1>
+        <p class="brand-desc">
+          通过 AI 深度分析家庭空气质量数据
+          <br />
+          为您创造健康、舒适的生活环境
+        </p>
+
+        <div class="features-list">
+          <div class="feature-item" v-for="feature in features" :key="feature.title">
+            <div class="feature-icon">{{ feature.icon }}</div>
+            <div class="feature-content">
+              <h4>{{ feature.title }}</h4>
+              <p>{{ feature.desc }}</p>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="brand-features">
-        <div class="feature-item">
-          <el-icon :size="20" color="rgba(255,255,255,0.8)"><TrendCharts /></el-icon>
-          <span>实时数据监控</span>
-        </div>
-        <div class="feature-item">
-          <el-icon :size="20" color="rgba(255,255,255,0.8)"><Warning /></el-icon>
-          <span>智能告警分析</span>
-        </div>
-        <div class="feature-item">
-          <el-icon :size="20" color="rgba(255,255,255,0.8)"><Document /></el-icon>
-          <span>数据报表生成</span>
-        </div>
+
+      <!-- 装饰元素 -->
+      <div class="decor-circles">
+        <div class="circle circle-1"></div>
+        <div class="circle circle-2"></div>
+        <div class="circle circle-3"></div>
       </div>
     </div>
+
+    <!-- 右侧登录区域 -->
     <div class="login-right">
       <div class="login-card">
-        <div class="login-header">
-          <div class="login-logo">
-            <el-icon :size="28" color="#e17055"><Monitor /></el-icon>
-          </div>
-          <h2 class="login-title">欢迎回来</h2>
-          <p class="login-desc">请登录您的管理账号</p>
+        <div class="card-header">
+          <h2>欢迎回来</h2>
+          <p>登录您的账户以继续</p>
         </div>
+
         <el-form ref="formRef" :model="form" :rules="rules" size="large" @keyup.enter="handleLogin">
           <el-form-item prop="username">
-            <el-input v-model="form.username" placeholder="用户名" :prefix-icon="User" />
+            <el-input
+              v-model="form.username"
+              placeholder="用户名"
+              :prefix-icon="User"
+              class="login-input"
+            />
           </el-form-item>
+
           <el-form-item prop="password">
-            <el-input v-model="form.password" type="password" placeholder="密码" :prefix-icon="Lock" show-password />
+            <el-input
+              v-model="form.password"
+              type="password"
+              placeholder="密码"
+              :prefix-icon="Lock"
+              show-password
+              class="login-input"
+            />
           </el-form-item>
+
           <el-form-item>
-            <el-button type="primary" :loading="loading" class="login-btn" @click="handleLogin">
-              {{ loading ? '登录中...' : '登 录' }}
+            <el-button
+              type="primary"
+              :loading="loading"
+              class="login-btn"
+              @click="handleLogin"
+            >
+              {{ loading ? '登录中...' : '登录' }}
             </el-button>
           </el-form-item>
         </el-form>
-        <p class="login-hint">默认账号: admin / admin123</p>
+
+        <div class="login-footer">
+          <p class="hint-text">
+            默认账号: <span class="hint-highlight">admin</span> / <span class="hint-highlight">admin123</span>
+          </p>
+        </div>
       </div>
     </div>
   </div>
@@ -70,6 +105,13 @@ const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
+
+const features = [
+  { icon: '📊', title: '实时监测', desc: '24/7 空气质量监控' },
+  { icon: '🤖', title: 'AI 分析', desc: '智能数据洞察' },
+  { icon: '💡', title: '健康建议', desc: '个性化改善方案' },
+  { icon: '📈', title: '商业价值', desc: '数据驱动决策' }
+]
 
 async function handleLogin() {
   if (!formRef.value) return
@@ -96,136 +138,217 @@ async function handleLogin() {
 </script>
 
 <style scoped>
-.login-container {
-  height: 100vh;
+.login-page {
+  min-height: 100vh;
   display: flex;
 }
 
+/* ===== 左侧品牌区域 ===== */
 .login-left {
   flex: 1;
-  background: var(--color-primary-gradient);
+  background: linear-gradient(135deg, #0066CC 0%, #5856D6 100%);
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
   padding: 60px;
   position: relative;
   overflow: hidden;
 }
-.login-left::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -20%;
-  width: 600px;
-  height: 600px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
-}
-.login-left::after {
-  content: '';
-  position: absolute;
-  bottom: -30%;
-  left: -10%;
-  width: 400px;
-  height: 400px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
+
+.left-content {
+  position: relative;
+  z-index: 2;
+  max-width: 500px;
 }
 
-.login-brand {
-  position: relative;
-  z-index: 1;
-}
-.brand-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.15);
+.brand-logo {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 24px;
-}
-.brand-title {
-  font-size: 32px;
-  font-weight: 700;
-  color: #fff;
-  margin-bottom: 8px;
-}
-.brand-subtitle {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 32px;
+  backdrop-filter: blur(10px);
 }
 
-.brand-features {
-  position: relative;
-  z-index: 1;
-  margin-top: 48px;
+.logo-emoji {
+  font-size: 40px;
+}
+
+.brand-title {
+  margin-bottom: 24px;
+}
+
+.title-main {
+  display: block;
+  font-size: 48px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+
+.title-sub {
+  display: block;
+  font-size: 24px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.brand-desc {
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  line-height: 1.6;
+  margin-bottom: 48px;
+}
+
+.features-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
+
 .feature-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 15px;
+  gap: 16px;
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
 }
 
+.feature-item:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateX(8px);
+}
+
+.feature-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.feature-content h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.feature-content p {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 装饰圆圈 */
+.decor-circles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.circle {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.circle-1 {
+  width: 400px;
+  height: 400px;
+  top: -100px;
+  right: -100px;
+}
+
+.circle-2 {
+  width: 300px;
+  height: 300px;
+  bottom: -50px;
+  left: -50px;
+}
+
+.circle-3 {
+  width: 200px;
+  height: 200px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* ===== 右侧登录区域 ===== */
 .login-right {
   width: 480px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #fff;
+  padding: 40px;
 }
 
 .login-card {
-  width: 360px;
+  width: 100%;
+  max-width: 400px;
 }
 
-.login-header {
-  text-align: center;
-  margin-bottom: 36px;
+.card-header {
+  margin-bottom: 40px;
 }
-.login-logo {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  background: var(--color-primary-light);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 16px;
-}
-.login-title {
-  font-size: 22px;
+
+.card-header h2 {
+  font-size: 28px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
-.login-desc {
-  font-size: 14px;
-  color: var(--text-muted);
+
+.card-header p {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.login-input :deep(.el-input__wrapper) {
+  padding: 8px 16px;
+  border-radius: 12px;
 }
 
 .login-btn {
   width: 100%;
-  height: 44px;
-  font-size: 15px;
-  border-radius: var(--radius-sm);
+  height: 48px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 12px;
+  margin-top: 8px;
 }
 
-.login-hint {
+.login-footer {
   text-align: center;
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-top: 16px;
+  margin-top: 24px;
 }
 
-@media (max-width: 768px) {
-  .login-left { display: none; }
-  .login-right { width: 100%; }
+.hint-text {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.hint-highlight {
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+/* ===== 响应式 ===== */
+@media (max-width: 1024px) {
+  .login-left {
+    display: none;
+  }
+
+  .login-right {
+    width: 100%;
+  }
 }
 </style>

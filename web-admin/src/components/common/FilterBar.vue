@@ -9,24 +9,34 @@
 <style scoped>
 .filter-bar {
   background: var(--card-bg);
-  border-radius: var(--radius-md);
-  padding: 16px 20px;
-  margin-bottom: 16px;
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  backdrop-filter: var(--glass-blur);
+  padding: 18px 24px;
+  margin-bottom: 20px;
+  transition: all var(--transition-normal);
 }
+
+.filter-bar:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 .filter-bar__items {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
+
 .filter-bar__items :deep(.el-select) {
-  width: 160px;
+  width: 180px;
 }
+
 .filter-bar__items :deep(.el-input) {
-  width: 200px;
+  width: 220px;
 }
+
 .filter-bar__items :deep(.el-date-editor) {
-  width: 260px;
+  width: 280px;
 }
 </style>

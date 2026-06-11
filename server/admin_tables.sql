@@ -124,29 +124,73 @@ CREATE TABLE IF NOT EXISTS company_info (
 CREATE TABLE IF NOT EXISTS intelligence_reports (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(200) NOT NULL,
-    report_type VARCHAR(20) NOT NULL DEFAULT 'daily' COMMENT 'daily/weekly/monthly',
+    report_type VARCHAR(20) NOT NULL DEFAULT 'daily' COMMENT 'daily/weekly/monthly/quarterly',
     site_id INT DEFAULT NULL,
     content TEXT DEFAULT NULL,
     summary VARCHAR(1000) DEFAULT '',
-    generated_by VARCHAR(50) DEFAULT 'system',
+    generated_by VARCHAR(50) DEFAULT 'system' COMMENT 'system/ai/enterprise',
     status VARCHAR(20) NOT NULL DEFAULT 'completed' COMMENT 'pending/completed/failed',
+    company_name VARCHAR(200) DEFAULT '' COMMENT '企业报告-客户公司名',
+    report_style VARCHAR(20) DEFAULT 'formal' COMMENT 'formal/casual',
+    report_period VARCHAR(50) DEFAULT '' COMMENT '报告期间描述',
+    metrics_included VARCHAR(200) DEFAULT '' COMMENT '包含的指标列表',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_type (report_type),
-    KEY idx_created (created_at)
+    KEY idx_created (created_at),
+    KEY idx_company (company_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 10. 产品推荐配置
-CREATE TABLE IF NOT EXISTS product_recommendations (
+-- 10. 产品型号管理
+CREATE TABLE IF NOT EXISTS product_models (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    product_name VARCHAR(200) NOT NULL,
-    category VARCHAR(100) DEFAULT '',
-    description TEXT DEFAULT NULL,
-    image_url VARCHAR(500) DEFAULT '',
-    link_url VARCHAR(500) DEFAULT '',
-    sort_order INT NOT NULL DEFAULT 0,
-    enabled TINYINT NOT NULL DEFAULT 1,
+    name VARCHAR(100) NOT NULL COMMENT '产品型号名称',
+    product_line VARCHAR(50) DEFAULT '' COMMENT '产品线：Pro系列/Lite系列/基础系列',
+    sensor_types VARCHAR(200) DEFAULT '' COMMENT '支持的传感器：PM2.5,PM10,NO2,SO2,O3',
+    description TEXT DEFAULT NULL COMMENT '产品描述',
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '1=在售 0=停产',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 11. 客户管理
+CREATE TABLE IF NOT EXISTS customers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL COMMENT '客户名称',
+    type VARCHAR(20) NOT NULL DEFAULT 'enterprise' COMMENT 'enterprise/individual',
+    contact_name VARCHAR(50) DEFAULT '' COMMENT '联系人',
+    phone VARCHAR(20) DEFAULT '' COMMENT '电话',
+    email VARCHAR(100) DEFAULT '' COMMENT '邮箱',
+    address VARCHAR(200) DEFAULT '' COMMENT '地址',
+    industry VARCHAR(50) DEFAULT '' COMMENT '行业：地产/酒店/学校/医院/办公',
+    status VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'active/inactive',
+    notes TEXT DEFAULT NULL COMMENT '备注',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_type (type),
+    KEY idx_industry (industry),
+    KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 12. 售后工单
+CREATE TABLE IF NOT EXISTS work_orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_no VARCHAR(32) NOT NULL UNIQUE COMMENT '工单编号 WO-20250611-001',
+    type VARCHAR(20) NOT NULL DEFAULT 'fault' COMMENT 'fault/repair/inspection/complaint',
+    priority VARCHAR(20) NOT NULL DEFAULT 'medium' COMMENT 'low/medium/high/urgent',
+    device_id VARCHAR(100) DEFAULT NULL COMMENT '关联设备',
+    customer_id INT DEFAULT NULL COMMENT '关联客户',
+    title VARCHAR(200) NOT NULL COMMENT '工单标题',
+    description TEXT DEFAULT NULL COMMENT '问题描述',
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' COMMENT 'pending/processing/review/closed',
+    assignee VARCHAR(50) DEFAULT NULL COMMENT '处理人',
+    result TEXT DEFAULT NULL COMMENT '处理结果',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    closed_at DATETIME DEFAULT NULL,
+    KEY idx_status (status),
+    KEY idx_device (device_id),
+    KEY idx_customer (customer_id),
+    KEY idx_priority (priority)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ============================================================

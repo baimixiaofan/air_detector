@@ -12,6 +12,7 @@
     "@element-plus/icons-vue": "^2.3.2",
     "@vue-leaflet/vue-leaflet": "^0.10.1",
     "axios": "^1.16.1",
+    "china-map": "^1.1.9",
     "echarts": "^6.1.0",
     "element-plus": "^2.14.0",
     "html2canvas": "^1.4.1",

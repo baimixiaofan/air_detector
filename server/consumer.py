@@ -217,6 +217,17 @@ class RedisStreamConsumer:
                 "device_id": msg_data.get("device_id", msg_data.get("client_ip")),
                 "server_time": msg_data.get("server_time")
             }
+            # 解析地理位置和用户标签（新字段）
+            if msg_data.get("location"):
+                try:
+                    parsed_data["location"] = json.loads(msg_data["location"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            if msg_data.get("user_info"):
+                try:
+                    parsed_data["user_info"] = json.loads(msg_data["user_info"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
             
             # 验证数据
             if self.validate_data(parsed_data):

@@ -22,18 +22,22 @@ defineProps({
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 28px;
 }
+
 .page-header__title {
   font-size: var(--font-size-h2);
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: -0.02em;
 }
+
 .page-header__subtitle {
   font-size: var(--font-size-body);
   color: var(--text-muted);
-  margin-top: 4px;
+  margin-top: 6px;
 }
+
 .page-header__right {
   display: flex;
   align-items: center;
