@@ -140,17 +140,6 @@ CREATE TABLE IF NOT EXISTS intelligence_reports (
     KEY idx_company (company_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 10. 产品型号管理
-CREATE TABLE IF NOT EXISTS product_models (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL COMMENT '产品型号名称',
-    product_line VARCHAR(50) DEFAULT '' COMMENT '产品线：Pro系列/Lite系列/基础系列',
-    sensor_types VARCHAR(200) DEFAULT '' COMMENT '支持的传感器：PM2.5,PM10,NO2,SO2,O3',
-    description TEXT DEFAULT NULL COMMENT '产品描述',
-    status TINYINT NOT NULL DEFAULT 1 COMMENT '1=在售 0=停产',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 11. 客户管理
 CREATE TABLE IF NOT EXISTS customers (

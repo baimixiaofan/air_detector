@@ -3807,10 +3807,6 @@ def get_vendor_stats():
             cur.execute("SELECT COUNT(*) AS cnt FROM work_orders WHERE status = 'processing'")
             processing_orders = cur.fetchone()['cnt']
 
-            # 产品型号数
-            cur.execute("SELECT COUNT(*) AS total FROM product_models WHERE status = 1")
-            total_products = cur.fetchone()['total']
-
             # 本月告警数
             cur.execute("SELECT COUNT(*) AS cnt FROM alert_records WHERE created_at >= DATE_FORMAT(NOW(), '%%Y-%%m-01')")
             alerts_month = cur.fetchone()['cnt']
@@ -3836,7 +3832,6 @@ def get_vendor_stats():
             'new_customers_month': new_customers_month,
             'pending_orders': pending_orders,
             'processing_orders': processing_orders,
-            'total_products': total_products,
             'alerts_month': alerts_month
         }
     })

@@ -24,7 +24,6 @@
             {{ [row.district, roomMap[row.room_location]].filter(Boolean).join(' · ') || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="product_model" label="型号" width="120" />
         <el-table-column label="客户" width="120">
           <template #default="{ row }">{{ row.customer_name || '-' }}</template>
         </el-table-column>
@@ -42,9 +41,6 @@
       <el-form :model="form" label-width="100px">
         <el-form-item label="设备名称" required>
           <el-input v-model="form.name" placeholder="如：办公室监测仪" />
-        </el-form-item>
-        <el-form-item label="设备型号">
-          <el-input v-model="form.product_model" placeholder="如：AirMonitor Pro 2025" />
         </el-form-item>
         <div v-if="!isEdit" class="device-id-hint">
           保存后将自动生成设备编码（AQ-YYYYMMDD-NNN），用户可在小程序中绑定设备并获取位置信息
@@ -103,7 +99,7 @@ const isEdit = ref(false)
 const filters = ref({ keyword: '' })
 
 const form = ref({
-  name: '', product_model: '', district: '', room_location: '',
+  name: '', district: '', room_location: '',
   customer_id: null, latitude: null, longitude: null, _id: null
 })
 
@@ -136,14 +132,14 @@ async function fetchData() {
 
 function handleAdd() {
   isEdit.value = false
-  form.value = { name: '', product_model: '', district: '', room_location: '', customer_id: null, latitude: null, longitude: null, _id: null }
+  form.value = { name: '', district: '', room_location: '', customer_id: null, latitude: null, longitude: null, _id: null }
   dialogVisible.value = true
 }
 
 function handleEdit(row) {
   isEdit.value = true
   form.value = {
-    name: row.name || '', product_model: row.product_model || '', district: row.district || '',
+    name: row.name || '', district: row.district || '',
     room_location: row.room_location || '', customer_id: row.customer_id || null,
     latitude: row.latitude, longitude: row.longitude, _id: row.id
   }

@@ -101,7 +101,7 @@ def make_device(name, cid, city_key, dev_name):
     lat += random.uniform(-0.01, 0.01)
     lng += random.uniform(-0.01, 0.01)
     r = api('POST', '/devices', {
-        'name': dev_name, 'product_model': 'AirInsight Pro 2025',
+        'name': dev_name,
         'district': district, 'customer_id': cid,
         'latitude': round(lat, 4), 'longitude': round(lng, 4)
     }, token)
