@@ -4,20 +4,23 @@
 
     <DashboardCard>
       <el-form ref="formRef" :model="form" label-width="100px" style="max-width: 600px;">
-        <el-form-item label="企业名称" prop="name">
+        <el-form-item label="企业名称">
           <el-input v-model="form.name" placeholder="请输入企业名称" />
         </el-form-item>
-        <el-form-item label="地址" prop="address">
+        <el-form-item label="Logo URL">
+          <el-input v-model="form.logo_url" placeholder="Logo 图片链接" />
+        </el-form-item>
+        <el-form-item label="地址">
           <el-input v-model="form.address" placeholder="请输入企业地址" />
         </el-form-item>
-        <el-form-item label="联系人" prop="contact_person">
-          <el-input v-model="form.contact_person" placeholder="请输入联系人" />
+        <el-form-item label="联系人">
+          <el-input v-model="form.contact_name" placeholder="请输入联系人" />
         </el-form-item>
-        <el-form-item label="联系电话" prop="phone">
-          <el-input v-model="form.phone" placeholder="请输入联系电话" />
+        <el-form-item label="联系电话">
+          <el-input v-model="form.contact_phone" placeholder="请输入联系电话" />
         </el-form-item>
-        <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" placeholder="请输入邮箱" />
+        <el-form-item label="邮箱">
+          <el-input v-model="form.contact_email" placeholder="请输入邮箱" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
@@ -36,7 +39,7 @@ import { ElMessage } from 'element-plus'
 
 const formRef = ref(null)
 const saving = ref(false)
-const form = ref({ name: '', address: '', contact_person: '', phone: '', email: '' })
+const form = ref({ name: '', logo_url: '', address: '', contact_name: '', contact_phone: '', contact_email: '', description: '' })
 
 async function fetchData() {
   try { const res = await getCompanyInfo(); if (res.code === 200 && res.data) form.value = res.data }

@@ -32,10 +32,36 @@ scp server/miniprogram_api.py   $SERVER:$REMOTE_FLASK/
 scp server/consumer.py          $SERVER:$REMOTE_FLASK/
 scp server/config.py            $SERVER:$REMOTE_FLASK/
 scp server/daily_stats_job.py   $SERVER:$REMOTE_FLASK/
+scp server/db_migrate.py        $SERVER:$REMOTE_FLASK/
+scp server/alert_checker.py     $SERVER:$REMOTE_FLASK/
 echo "✅ 后端上传完成"
 
 echo "============================"
-echo "4. 重启 Flask 服务"
+echo "4. 执行数据库迁移"
+echo "============================"
+# db_migrate.py 需要上传后执行，找 Python 环境
+PYTHON_CMD=""
+for try_path in \
+    "/var/lib/jenkins/workspace/test/venv/bin/python" \
+    "/home/flask_app/venv/bin/python" \
+    "$(ssh $SERVER 'which python3 2>/dev/null')"; do
+    if [ -n "$try_path" ] && ssh $SERVER "test -x $try_path" 2>/dev/null; then
+        PYTHON_CMD="$try_path"
+        break
+    fi
+done
+if [ -n "$PYTHON_CMD" ]; then
+    ssh $SERVER "cd $REMOTE_FLASK && $PYTHON_CMD db_migrate.py"
+    echo "✅ 数据库迁移完成"
+else
+    echo "⚠️ 未找到 Python 环境，尝试默认 python3"
+    ssh $SERVER "cd $REMOTE_FLASK && python3 db_migrate.py" 2>/dev/null \
+      && echo "✅ 数据库迁移完成" \
+      || echo "⚠️ 迁移跳过（手动：ssh $SERVER cd $REMOTE_FLASK && python3 db_migrate.py）"
+fi
+
+echo "============================"
+echo "5. 重启 Flask 服务"
 echo "============================"
 ssh $SERVER "systemctl restart flask_api"
 sleep 2

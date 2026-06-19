@@ -277,6 +277,10 @@ class AirQualitySimulator:
                 "industry": self.profile.get('industry', '办公')
             }
         }
+        # 企业模式：附加客户信息
+        if hasattr(self, 'customer_id') and self.customer_id:
+            payload['customer_id'] = self.customer_id
+            payload['company_name'] = self.company_name
         for i, col in enumerate(self.cols):
             payload["data"][col] = round(latest_data[i], 2)
 
@@ -445,6 +449,85 @@ def get_cities_by_province(province_name):
     return [name for name, profile in CITY_PROFILES.items() if profile['province'] == province_name]
 
 
+def run_enterprise_mode(api_endpoint, api_headers, frequency):
+    """企业模式：读取 device_config.json，使用真实设备 ID 和客户标签模拟数据"""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'server', 'device_config.json')
+    try:
+        with open(config_path, encoding='utf-8') as f:
+            config = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"❌ 读取 device_config.json 失败: {e}")
+        return
+
+    devices = [d for d in config.get('devices', []) if d.get('customer_id')]
+    if not devices:
+        print("⚠️ device_config.json 中没有找到带 customer_id 的设备")
+        print("   请在 device_config.json 中添加：")
+        print('   {"code": "CQ_001", "name": "...", "customer_id": 1, "company_name": "XX公司"}')
+        return
+
+    print(f"[Enterprise] Enterprise mode started, {len(devices)} devices")
+    print()
+
+    threads = []
+    simulators = []
+
+    for i, dev in enumerate(devices):
+        code = dev['code']
+        dev_name = dev.get('name', code)
+        company = dev.get('company_name', '')
+        cid = dev.get('customer_id', '')
+
+        # 找匹配的城市配置
+        profile = CITY_PROFILES.get(dev_name)
+        if not profile:
+            # 模糊匹配
+            for pname, p in CITY_PROFILES.items():
+                if pname in dev_name or dev_name in pname:
+                    profile = p
+                    break
+        if not profile:
+            profile = random.choice(list(CITY_PROFILES.values()))
+
+        sim = AirQualitySimulator(
+            city_profile=profile,
+            output_file=f'enterprise_{code}.json',
+            frequency=frequency,
+            api_endpoint=api_endpoint,
+            api_headers=api_headers,
+            device_prefix=code.split('_')[0] if '_' in code else 'ENT',
+            user_name=f'{company}·{dev_name}' if company else dev_name
+        )
+        # 覆盖为真实设备 ID
+        sim.simulator_id = code
+        # 注入企业信息
+        sim.customer_id = str(cid)
+        sim.company_name = company
+
+        simulators.append(sim)
+        t = threading.Thread(target=sim.start, daemon=True)
+        threads.append(t)
+        print(f"   [Enterprise] {code} {dev_name} -> {company} | Location: {profile['province']} {profile['city']}")
+
+    print(f"\n   {'='*50}")
+    print(f"   All enterprise devices started! Ctrl+C to stop")
+    print(f"   {'='*50}\n")
+
+    for t in threads:
+        t.start()
+
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n⏹ 停止所有企业模拟器...")
+        for sim in simulators:
+            sim.stop()
+        for t in threads:
+            t.join(timeout=2)
+        print("全部停止")
+
+
 def get_all_provinces():
     """获取所有省份列表"""
     return sorted(set(p['province'] for p in CITY_PROFILES.values()))
@@ -462,6 +545,7 @@ def main():
     parser.add_argument('--max-records', type=int, default=100, help='最大记录数')
     parser.add_argument('--api-endpoint', default='', help='API端点URL')
     parser.add_argument('--api-header', action='append', help='API请求头 key=value')
+    parser.add_argument('--enterprise', action='store_true', help='企业模式：读取 device_config.json，使用真实设备ID和客户标签')
 
     args = parser.parse_args()
 
@@ -470,6 +554,11 @@ def main():
         for header in args.api_header:
             key, value = header.split('=', 1)
             api_headers[key.strip()] = value.strip()
+
+    # 企业模式优先
+    if args.enterprise:
+        run_enterprise_mode(args.api_endpoint, api_headers, args.frequency)
+        return
 
     # 处理 --province 参数
     if args.province:

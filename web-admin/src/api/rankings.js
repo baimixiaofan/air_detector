@@ -7,3 +7,7 @@ export function getRankings(params) {
 export function getRankingTrend(params) {
   return request.get('/admin/rankings/trend', { params })
 }
+
+export function getRankingAreas(params) {
+  return request.get('/admin/rankings/areas', { params })
+}

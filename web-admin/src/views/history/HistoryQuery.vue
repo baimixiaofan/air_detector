@@ -1,124 +1,140 @@
 <template>
   <div class="page-container">
-    <PageHeader title="数据查询" />
+    <PageHeader title="历史数据" subtitle="输入设备 ID 查询历史趋势" />
 
-    <FilterBar>
-      <el-date-picker v-model="dateRange" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" value-format="YYYY-MM-DD" />
-      <el-select v-model="selectedSites" multiple collapse-tags placeholder="选择站点" clearable>
-        <el-option v-for="s in sites" :key="s.id" :label="s.name" :value="s.id" />
+    <div class="query-bar">
+      <el-input v-model="deviceId" placeholder="输入设备ID，如 CQ_001 或 AQ_北京市_345" style="width: 360px;" clearable @keyup.enter="fetchData" />
+      <el-select v-model="hours" style="width: 120px;">
+        <el-option label="近 6 小时" :value="6" />
+        <el-option label="近 12 小时" :value="12" />
+        <el-option label="近 24 小时" :value="24" />
+        <el-option label="近 48 小时" :value="48" />
+        <el-option label="近 7 天" :value="168" />
       </el-select>
-      <el-select v-model="selectedPollutants" multiple collapse-tags placeholder="选择指标" clearable>
-        <el-option v-for="p in pollutants" :key="p.key" :label="p.label" :value="p.key" />
-      </el-select>
-      <el-select v-model="granularity" placeholder="数据粒度">
-        <el-option label="按小时" value="hourly" />
-        <el-option label="按天" value="daily" />
-      </el-select>
-      <el-button type="primary" @click="handleQuery" :loading="loading">查询</el-button>
-      <el-button @click="handleExport">导出 CSV</el-button>
-    </FilterBar>
-
-    <div v-if="queryResult.length" class="kpi-row-3" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px;">
-      <StatCard title="平均 AQI" :value="avgAqi" variant="light" />
-      <StatCard title="最大 AQI" :value="maxAqi" variant="light" />
-      <StatCard title="最小 AQI" :value="minAqi" variant="light" />
+      <el-button type="primary" @click="fetchData" :loading="loading">查询</el-button>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr; gap: 16px;">
-      <DashboardCard title="趋势图">
-        <TrendChart :data="queryResult" :series="chartSeries" :height="280" />
-      </DashboardCard>
+    <div v-if="error" class="error-msg">{{ error }}</div>
 
-      <DashboardCard title="数据明细">
-        <el-table :data="queryResult" stripe style="width: 100%" max-height="400">
-          <el-table-column prop="timestamp" label="时间" width="160">
-            <template #default="{ row }">{{ formatDateTime(row.timestamp) }}</template>
-          </el-table-column>
-          <el-table-column prop="device_id" label="设备" width="140" />
-          <el-table-column prop="aqi" label="AQI" width="80" />
-          <el-table-column prop="pm25" label="PM2.5" width="80" />
-          <el-table-column prop="pm10" label="PM10" width="80" />
-          <el-table-column prop="no2" label="NO₂" width="80" />
-          <el-table-column prop="so2" label="SO₂" width="80" />
-          <el-table-column prop="o3" label="O₃" width="80" />
-        </el-table>
-      </DashboardCard>
+    <div v-if="chartData.length" class="chart-box">
+      <div class="chart-header">
+        <h3>{{ deviceId }} · 空气质量趋势</h3>
+        <div class="chart-stats">
+          <span>平均 <strong>{{ avg }}</strong></span>
+          <span>最高 <strong style="color:#FF3B30">{{ max }}</strong></span>
+          <span>最低 <strong style="color:#34C759">{{ min }}</strong></span>
+          <span>{{ chartData.length }} 条数据</span>
+        </div>
+      </div>
+      <div ref="chartRef" class="chart-body"></div>
     </div>
+
+    <el-empty v-else-if="!loading && searched" description="该设备暂无历史数据" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { queryHistory } from '@/api/history'
-import { getSites } from '@/api/sites'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import * as echarts from 'echarts'
+import request from '@/api/request'
 import PageHeader from '@/components/common/PageHeader.vue'
-import DashboardCard from '@/components/common/DashboardCard.vue'
-import FilterBar from '@/components/common/FilterBar.vue'
-import StatCard from '@/components/common/StatCard.vue'
-import TrendChart from '@/components/charts/TrendChart.vue'
-import { formatDateTime, exportToCSV } from '@/utils/format'
-import { POLLUTANTS } from '@/utils/constants'
-import { ElMessage } from 'element-plus'
 
-const pollutants = POLLUTANTS
+const deviceId = ref('')
+const hours = ref(24)
 const loading = ref(false)
-const sites = ref([])
-const dateRange = ref([])
-const selectedSites = ref([])
-const selectedPollutants = ref(['pm25', 'no2'])
-const granularity = ref('hourly')
-const queryResult = ref([])
+const chartData = ref([])
+const error = ref('')
+const searched = ref(false)
+const chartRef = ref(null)
+let chart = null
+let ro = null
 
-const chartSeries = computed(() => {
-  return selectedPollutants.value.map(key => {
-    const p = pollutants.find(x => x.key === key)
-    return { name: p?.label || key, key, color: key === 'pm25' ? '#e17055' : key === 'no2' ? '#2d3436' : '#74b9ff' }
-  })
-})
+const avg = computed(() => chartData.value.length ? (chartData.value.reduce((s, d) => s + d.aqi, 0) / chartData.value.length).toFixed(1) : 0)
+const max = computed(() => chartData.value.length ? Math.max(...chartData.value.map(d => d.aqi)).toFixed(1) : 0)
+const min = computed(() => chartData.value.length ? Math.min(...chartData.value.map(d => d.aqi)).toFixed(1) : 0)
 
-const avgAqi = computed(() => {
-  if (!queryResult.value.length) return 0
-  return Math.round(queryResult.value.reduce((s, d) => s + (d.aqi || 0), 0) / queryResult.value.length)
-})
-const maxAqi = computed(() => Math.max(...queryResult.value.map(d => d.aqi || 0), 0))
-const minAqi = computed(() => Math.min(...queryResult.value.filter(d => d.aqi).map(d => d.aqi), Infinity) || 0)
-
-async function handleQuery() {
+async function fetchData() {
+  if (!deviceId.value.trim()) return
   loading.value = true
+  error.value = ''
+  searched.value = true
   try {
-    const res = await queryHistory({
-      start_date: dateRange.value?.[0],
-      end_date: dateRange.value?.[1],
-      sites: selectedSites.value,
-      granularity: granularity.value
+    const res = await request({
+      url: '/history',
+      params: { device_id: deviceId.value.trim(), hours: hours.value }
     })
-    if (res.code === 200) {
-      queryResult.value = res.data || []
+    // /api/history 返回纯数组，不是 {code, data} 格式
+    const list = Array.isArray(res) ? res : (res?.data || res?.records || [])
+    if (!list.length) {
+      error.value = '该设备暂无历史数据'
+      chartData.value = []
+      return
     }
+    chartData.value = list.map(d => ({
+      time: d.sample_time || d.timestamp || d.time || '',
+      aqi: d.AQI ?? d.aqi ?? d.data?.AQI ?? 0,
+      pm25: d.PM2_5 ?? d.pm25 ?? d['PM₂.₅'] ?? d.data?.['PM₂.₅'] ?? 0
+    })).filter(d => d.time)
+    error.value = ''
+    nextTick(renderChart)
   } catch (e) {
-    ElMessage.error('查询失败')
+    error.value = '查询失败'
+    chartData.value = []
   } finally {
     loading.value = false
   }
 }
 
-function handleExport() {
-  if (!queryResult.value.length) return ElMessage.warning('暂无数据')
-  const columns = [
-    { key: 'timestamp', label: '时间' },
-    { key: 'device_id', label: '设备' },
-    { key: 'aqi', label: 'AQI' },
-    { key: 'pm25', label: 'PM2.5' },
-    { key: 'no2', label: 'NO₂' },
-    { key: 'so2', label: 'SO₂' },
-    { key: 'o3', label: 'O₃' }
-  ]
-  exportToCSV(queryResult.value, columns, `history_data_${new Date().toISOString().slice(0, 10)}.csv`)
-  ElMessage.success('导出成功')
+function renderChart() {
+  if (chart) chart.dispose()
+  if (!chartRef.value || !chartData.value.length) return
+  chart = echarts.init(chartRef.value)
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['AQI', 'PM2.5'], bottom: 0 },
+    grid: { left: 50, right: 16, top: 10, bottom: 40 },
+    xAxis: { type: 'category', data: chartData.value.map(d => d.time), axisLabel: { fontSize: 11, rotate: 30 } },
+    yAxis: { type: 'value', name: 'AQI' },
+    series: [
+      { name: 'AQI', type: 'line', data: chartData.value.map(d => d.aqi), smooth: true,
+        lineStyle: { color: '#007AFF', width: 2 },
+        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(0,122,255,0.2)' }, { offset: 1, color: 'rgba(0,122,255,0.02)' }
+        ])},
+        markLine: { silent: true, data: [
+          { yAxis: 50, lineStyle: { color: '#34C759', type: 'dashed' }, label: { formatter: '优 50' } },
+          { yAxis: 100, lineStyle: { color: '#FF9500', type: 'dashed' }, label: { formatter: '良 100' } }
+        ]},
+        symbol: 'circle', symbolSize: 4
+      },
+      { name: 'PM2.5', type: 'line', data: chartData.value.map(d => d.pm25), smooth: true,
+        lineStyle: { color: '#5856D6', width: 2 }, symbol: 'diamond', symbolSize: 4 }
+    ]
+  })
+  ro = new ResizeObserver(() => chart?.resize())
+  ro.observe(chartRef.value)
 }
 
-onMounted(async () => {
-  const res = await getSites()
-  if (res.code === 200) sites.value = res.data || []
-})
+onMounted(() => { if (deviceId.value) fetchData() })
+onBeforeUnmount(() => { if (chart) chart.dispose(); if (ro) ro.disconnect() })
 </script>
+
+<style scoped>
+.query-bar {
+  display: flex; gap: 12px; align-items: center; margin-bottom: 20px;
+  background: #fff; border: 1px solid rgba(0,0,0,0.06); border-radius: 14px; padding: 16px 20px;
+}
+.error-msg {
+  padding: 12px 16px; background: rgba(255,59,48,0.08); color: #FF3B30;
+  border-radius: 8px; font-size: 13px; margin-bottom: 16px;
+}
+.chart-box {
+  background: #fff; border: 1px solid rgba(0,0,0,0.06); border-radius: 14px; padding: 20px;
+}
+.chart-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+}
+.chart-header h3 { margin: 0; font-size: 15px; font-weight: 600; color: #1d1d1f; }
+.chart-stats { display: flex; gap: 16px; font-size: 13px; color: #6e6e73; }
+.chart-body { width: 100%; height: 400px; }
+</style>

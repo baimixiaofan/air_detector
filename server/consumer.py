@@ -228,6 +228,11 @@ class RedisStreamConsumer:
                     parsed_data["user_info"] = json.loads(msg_data["user_info"])
                 except (json.JSONDecodeError, TypeError):
                     pass
+            # 企业模式：存储客户信息
+            if msg_data.get("customer_id"):
+                parsed_data["customer_id"] = msg_data["customer_id"]
+            if msg_data.get("company_name"):
+                parsed_data["company_name"] = msg_data["company_name"]
             
             # 验证数据
             if self.validate_data(parsed_data):

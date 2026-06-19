@@ -39,48 +39,10 @@ const routes = [
         meta: { roles: ['admin', 'ops', 'viewer'], title: '设备管理', icon: 'Cpu' }
       },
       {
-        path: 'monitoring',
-        redirect: '/monitoring/list',
-        meta: { roles: ['admin', 'ops', 'viewer'], title: '实时监控', icon: 'TrendingUp' },
-        children: [
-          {
-            path: 'list',
-            name: 'MonitoringList',
-            component: () => import('@/views/monitoring/MonitoringList.vue'),
-            meta: { roles: ['admin', 'ops', 'viewer'], title: '列表视图' }
-          },
-          {
-            path: 'map',
-            name: 'MonitoringMap',
-            component: () => import('@/views/monitoring/MonitoringMap.vue'),
-            meta: { roles: ['admin', 'ops', 'viewer'], title: '地图视图' }
-          }
-        ]
-      },
-      {
         path: 'history',
-        redirect: '/history/query',
-        meta: { roles: ['admin', 'ops', 'viewer'], title: '历史数据', icon: 'DataLine' },
-        children: [
-          {
-            path: 'query',
-            name: 'HistoryQuery',
-            component: () => import('@/views/history/HistoryQuery.vue'),
-            meta: { roles: ['admin', 'ops', 'viewer'], title: '数据查询' }
-          },
-          {
-            path: 'comparison',
-            name: 'Comparison',
-            component: () => import('@/views/history/ComparisonView.vue'),
-            meta: { roles: ['admin', 'ops', 'viewer'], title: '多站对比' }
-          },
-          {
-            path: 'report',
-            name: 'Report',
-            component: () => import('@/views/history/ReportView.vue'),
-            meta: { roles: ['admin', 'ops'], title: '统计报表' }
-          }
-        ]
+        name: 'History',
+        component: () => import('@/views/history/HistoryQuery.vue'),
+        meta: { roles: ['admin', 'ops', 'viewer'], title: '历史数据', icon: 'DataLine' }
       },
       {
         path: 'customers',

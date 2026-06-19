@@ -32,7 +32,7 @@ import Navbar from './Navbar.vue'
 
 .app-main {
   background: var(--page-bg);
-  padding: 0;
+  padding: 28px 32px;
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;

@@ -38,40 +38,45 @@
       </el-table>
     </DashboardCard>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑设备' : '出厂添加设备'" width="520px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑设备' : '出厂添加设备'" width="480px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="设备名称" required>
-          <el-input v-model="form.name" placeholder="如：渝中区办公室监测仪" />
+          <el-input v-model="form.name" placeholder="如：办公室监测仪" />
         </el-form-item>
         <el-form-item label="设备型号">
           <el-input v-model="form.product_model" placeholder="如：AirMonitor Pro 2025" />
         </el-form-item>
-        <el-form-item label="精确到区">
-          <el-input v-model="form.district" placeholder="如：渝中区" />
-        </el-form-item>
-        <el-form-item label="房间位置">
-          <el-select v-model="form.room_location" placeholder="选择位置" clearable style="width:100%">
-            <el-option label="客厅" value="living_room" />
-            <el-option label="卧室" value="bedroom" />
-            <el-option label="厨房" value="kitchen" />
-            <el-option label="书房" value="study" />
-            <el-option label="阳台" value="balcony" />
-            <el-option label="餐厅" value="dining_room" />
-            <el-option label="卫生间" value="bathroom" />
-            <el-option label="门厅" value="hall" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="绑定客户">
-          <el-select v-model="form.customer_id" placeholder="选择客户" clearable style="width:100%">
-            <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="经纬度">
-          <div style="display:flex;gap:8px">
-            <el-input-number v-model="form.latitude" :precision="2" placeholder="纬度" style="flex:1" />
-            <el-input-number v-model="form.longitude" :precision="2" placeholder="经度" style="flex:1" />
-          </div>
-        </el-form-item>
+        <div v-if="!isEdit" class="device-id-hint">
+          保存后将自动生成设备编码（AQ-YYYYMMDD-NNN），用户可在小程序中绑定设备并获取位置信息
+        </div>
+        <template v-if="isEdit">
+          <el-form-item label="位置">
+            <el-input v-model="form.district" placeholder="区/县（用户绑定后自动填充）" />
+          </el-form-item>
+          <el-form-item label="房间">
+            <el-select v-model="form.room_location" placeholder="选择位置" clearable style="width:100%">
+              <el-option label="客厅" value="living_room" />
+              <el-option label="卧室" value="bedroom" />
+              <el-option label="厨房" value="kitchen" />
+              <el-option label="书房" value="study" />
+              <el-option label="阳台" value="balcony" />
+              <el-option label="餐厅" value="dining_room" />
+              <el-option label="卫生间" value="bathroom" />
+              <el-option label="门厅" value="hall" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="绑定客户">
+            <el-select v-model="form.customer_id" placeholder="可选" clearable style="width:100%">
+              <el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="经纬度">
+            <div style="display:flex;gap:8px">
+              <el-input-number v-model="form.latitude" :precision="2" placeholder="纬度" style="flex:1" />
+              <el-input-number v-model="form.longitude" :precision="2" placeholder="经度" style="flex:1" />
+            </div>
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -181,3 +186,15 @@ async function handleDelete(row) {
 
 onMounted(fetchData)
 </script>
+
+<style scoped>
+.device-id-hint {
+  margin: -8px 0 16px 100px;
+  font-size: 12px;
+  color: #aeaeb2;
+  line-height: 1.5;
+  padding: 10px 14px;
+  background: #f5f5f7;
+  border-radius: 8px;
+}
+</style>

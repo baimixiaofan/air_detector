@@ -74,23 +74,11 @@ const allMenuItems = [
   { path: '/customers', title: '客户管理', icon: 'UserFilled', roles: ['admin', 'ops'] },
   { path: '/devices', title: '设备管理', icon: 'Cpu', roles: ['admin', 'ops', 'viewer'] },
   { path: '/workorders', title: '售后工单', icon: 'Tickets', roles: ['admin', 'ops'] },
-  {
-    path: '/monitoring', title: '实时监控', icon: 'TrendingUp', roles: ['admin', 'ops', 'viewer'],
-    children: [
-      { path: '/monitoring/list', title: '列表视图' },
-      { path: '/monitoring/map', title: '地图视图' }
-    ]
-  },
   { path: '/analytics', title: '数据分析', icon: 'DataAnalysis', roles: ['admin', 'ops'] },
   { path: '/reports', title: '数据报告', icon: 'Document', roles: ['admin', 'ops', 'viewer'] },
   { path: '/rankings', title: '区域排行', icon: 'Trophy', roles: ['admin', 'ops', 'viewer'] },
   {
     path: '/history', title: '历史数据', icon: 'DataLine', roles: ['admin', 'ops', 'viewer'],
-    children: [
-      { path: '/history/query', title: '数据查询' },
-      { path: '/history/comparison', title: '多站对比' },
-      { path: '/history/report', title: '统计报表', roles: ['admin', 'ops'] }
-    ]
   },
   {
     path: '/alerts', title: '告警管理', icon: 'Warning', roles: ['admin', 'ops', 'viewer'],

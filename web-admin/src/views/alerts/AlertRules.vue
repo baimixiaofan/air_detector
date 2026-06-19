@@ -7,7 +7,7 @@
     <DashboardCard>
       <el-table :data="tableData" v-loading="loading" stripe style="width: 100%">
         <el-table-column prop="name" label="规则名称" min-width="150" />
-        <el-table-column prop="pollutant" label="监测指标" width="100" />
+        <el-table-column prop="metric" label="监测指标" width="100" />
         <el-table-column label="阈值条件" width="140">
           <template #default="{ row }">{{ row.operator }} {{ row.threshold }}</template>
         </el-table-column>
@@ -35,8 +35,8 @@
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑规则' : '添加规则'" width="480px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
         <el-form-item label="规则名称" prop="name"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="监测指标" prop="pollutant">
-          <el-select v-model="form.pollutant" style="width: 100%">
+        <el-form-item label="监测指标" prop="metric">
+          <el-select v-model="form.metric" style="width: 100%">
             <el-option label="AQI" value="aqi" />
             <el-option label="PM2.5" value="pm25" />
             <el-option label="PM10" value="pm10" />
@@ -80,10 +80,10 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const submitting = ref(false)
 const formRef = ref(null)
-const form = ref({ id: null, name: '', pollutant: 'aqi', operator: '>', threshold: 100, severity: 'warning', enabled: true })
+const form = ref({ id: null, name: '', metric: 'aqi', operator: '>', threshold: 100, severity: 'warning', enabled: true })
 const rules = {
   name: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
-  pollutant: [{ required: true, message: '请选择指标', trigger: 'change' }],
+  metric: [{ required: true, message: '请选择监测指标', trigger: 'change' }],
   severity: [{ required: true, message: '请选择严重程度', trigger: 'change' }]
 }
 
@@ -99,7 +99,7 @@ async function fetchData() {
 
 function handleAdd() {
   isEdit.value = false
-  form.value = { id: null, name: '', pollutant: 'aqi', operator: '>', threshold: 100, severity: 'warning', enabled: true }
+  form.value = { id: null, name: '', metric: 'aqi', operator: '>', threshold: 100, severity: 'warning', enabled: true }
   dialogVisible.value = true
 }
 function handleEdit(row) {

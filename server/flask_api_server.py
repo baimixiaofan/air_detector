@@ -39,7 +39,9 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 # Redis 连接
 try:
     redis_client = redis.StrictRedis(
-        host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True
+        host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB,
+        decode_responses=True, max_connections=50,
+        socket_connect_timeout=3, socket_timeout=3
     )
     redis_client.ping()
     print(f"成功连接到 Redis 服务器: {REDIS_HOST}:{REDIS_PORT}")
@@ -73,6 +75,14 @@ logger.info("小程序后端蓝图已注册")
 from admin_api import admin_api
 app.register_blueprint(admin_api, url_prefix='/api/admin')
 logger.info("管理后台蓝图已注册")
+
+# 启动告警检查引擎（后台线程，每5分钟）
+try:
+    from alert_checker import run_async as start_alert_checker
+    start_alert_checker()
+    logger.info("告警检查引擎已启动")
+except Exception as e:
+    logger.warning(f"告警检查引擎启动失败: {e}")
 
 
 if __name__ == '__main__':

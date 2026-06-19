@@ -182,6 +182,11 @@ def receive_air_quality_data():
                 record["location"] = json.dumps(data['location'])
             if data.get('user'):
                 record["user_info"] = json.dumps(data['user'])
+            # 企业模式：透传客户信息到 Redis
+            if data.get('customer_id'):
+                record["customer_id"] = data['customer_id']
+            if data.get('company_name'):
+                record["company_name"] = data['company_name']
             try:
                 push_to_redis_stream(record)
                 return jsonify({

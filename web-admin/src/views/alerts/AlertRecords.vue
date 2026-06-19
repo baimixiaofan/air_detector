@@ -83,7 +83,10 @@ async function fetchData() {
   loading.value = true
   try {
     const res = await getAlertRecords()
-    if (res.code === 200) tableData.value = res.data || []
+    if (res.code === 200) {
+      // 后端返回 {list: [...], total: ...}
+      tableData.value = Array.isArray(res.data) ? res.data : (res.data?.list || [])
+    }
   } catch (e) { console.error(e) }
   finally { loading.value = false }
 }

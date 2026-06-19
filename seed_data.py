@@ -1,128 +1,234 @@
 """
-数据种子脚本 — 通过 API 填充业务数据
-用法：python seed_data.py
+演示数据种子 — 创建客户、设备、工单、告警、报告
+用法：PYTHONIOENCODING=utf-8 python seed_data.py
 """
-import requests
-import json
-import random
-import sys
-import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+import json, random, ssl, urllib.request, urllib.error, sys
+ssl._create_default_https_context = ssl._create_unverified_context
 
-requests.packages.urllib3.disable_warnings()
+BASE = 'https://47.109.191.13/api/admin'
+DEVICE_API = 'https://47.109.191.13/api/air-quality'
 
-API_BASE = 'https://baimeixiaofan.xyz/api/admin'
+def api(method, path, data=None, token=''):
+    url = f'{BASE}{path}'
+    hdr = {'Content-Type': 'application/json'}
+    if token: hdr['Authorization'] = f'Bearer {token}'
+    req = urllib.request.Request(url, data=json.dumps(data).encode() if data else None, headers=hdr, method=method)
+    try: return json.loads(urllib.request.urlopen(req, timeout=15).read())
+    except Exception as e: print(f'  !! {path}: {e}'); return None
 
-def get_token():
-    r = requests.post(f'{API_BASE}/login', json={'username': 'admin', 'password': 'admin123'}, verify=False)
-    return r.json()['data']['token']
+# 登录
+print('>>> Login')
+r = api('POST', '/login', {'username': 'admin', 'password': 'admin123'})
+assert r and r.get('code') == 200, 'Login failed!'
+token = r['data']['token']
+print(f'OK')
 
-def api(method, path, token, data=None):
-    headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
-    r = getattr(requests, method)(f'{API_BASE}{path}', json=data, headers=headers, verify=False, timeout=15)
-    return r.json()
+# ── 清除旧设备，从头来 ──
+print('\n>>> Clean old devices')
+old = api('GET', '/devices', token=token)
+if old and old.get('code') == 200:
+    for d in old.get('data', []):
+        if isinstance(d, dict) and d.get('id'):
+            api('DELETE', f'/devices/{d["device_id"]}', token=token)
 
-def seed_products(token):
-    products = [
-        {'name': 'AirMonitor Pro 2025', 'product_line': 'Pro系列', 'sensor_types': 'PM2.5,PM10,NO2,SO2,O3,CO', 'description': '高端室内空气质量监测仪，支持6项指标实时监测', 'status': 1},
-        {'name': 'AirMonitor Lite', 'product_line': 'Lite系列', 'sensor_types': 'PM2.5,NO2,O3', 'description': '入门级空气检测仪，3项核心指标', 'status': 1},
-        {'name': 'AirMonitor Outdoor', 'product_line': 'Pro系列', 'sensor_types': 'PM2.5,PM10,NO2,SO2,O3,CO,CO2', 'description': '户外环境监测站，7项全指标', 'status': 1},
-        {'name': 'AirSense Mini', 'product_line': '基础系列', 'sensor_types': 'PM2.5,AQI', 'description': '迷你便携式，适合个人用户', 'status': 1},
-        {'name': 'AirGuard Enterprise', 'product_line': 'Pro系列', 'sensor_types': 'PM2.5,PM10,NO2,SO2,O3,CO,CO2,TVOC', 'description': '企业级8项全指标监测', 'status': 1},
-    ]
-    count = 0
-    for p in products:
-        try:
-            r = api('post', '/products', token, p)
-            if r.get('code') == 200: count += 1
-        except: pass
-    print(f'  [OK] 产品型号: {count}/{len(products)}')
+# ── 城市坐标映射 ──
+CT = {
+    '北京朝阳': (39.92, 116.46, '北京市', '北京市', '朝阳区'),
+    '上海浦东': (31.22, 121.54, '上海市', '上海市', '浦东新区'),
+    '成都武侯': (30.60, 104.06, '四川省', '成都市', '武侯区'),
+    '深圳南山': (22.54, 113.95, '广东省', '深圳市', '南山区'),
+    '杭州西湖': (30.26, 120.15, '浙江省', '杭州市', '西湖区'),
+    '武汉武昌': (30.55, 114.32, '湖北省', '武汉市', '武昌区'),
+    '南京鼓楼': (32.06, 118.78, '江苏省', '南京市', '鼓楼区'),
+    # 重庆各区县
+    '重庆渝中': (29.56, 106.57, '重庆市', '重庆市', '渝中区'),
+    '重庆江北': (29.61, 106.54, '重庆市', '重庆市', '江北区'),
+    '重庆沙坪坝': (29.56, 106.46, '重庆市', '重庆市', '沙坪坝区'),
+    '重庆南岸': (29.52, 106.56, '重庆市', '重庆市', '南岸区'),
+    '重庆渝北': (29.72, 106.63, '重庆市', '重庆市', '渝北区'),
+    '重庆九龙坡': (29.50, 106.51, '重庆市', '重庆市', '九龙坡区'),
+    '重庆大渡口': (29.48, 106.48, '重庆市', '重庆市', '大渡口区'),
+    '重庆巴南': (29.38, 106.52, '重庆市', '重庆市', '巴南区'),
+    '重庆北碚': (29.83, 106.40, '重庆市', '重庆市', '北碚区'),
+}
 
-def seed_customers(token):
-    customers = [
-        {'name': '万科地产集团', 'type': 'enterprise', 'contact_name': '张经理', 'phone': '13800138001', 'industry': '地产', 'address': '深圳市盐田区'},
-        {'name': '碧桂园集团', 'type': 'enterprise', 'contact_name': '李总监', 'phone': '13900139002', 'industry': '地产', 'address': '佛山市顺德区'},
-        {'name': '希尔顿酒店', 'type': 'enterprise', 'contact_name': '王经理', 'phone': '13700137003', 'industry': '酒店', 'address': '上海市浦东新区'},
-        {'name': '清华附中', 'type': 'enterprise', 'contact_name': '赵校长', 'phone': '13600136004', 'industry': '学校', 'address': '北京市海淀区'},
-        {'name': '协和医院', 'type': 'enterprise', 'contact_name': '陈主任', 'phone': '13500135005', 'industry': '医院', 'address': '北京市东城区'},
-        {'name': '字节跳动', 'type': 'enterprise', 'contact_name': '刘HR', 'phone': '13400134006', 'industry': '办公', 'address': '北京市海淀区'},
-        {'name': '阿里巴巴', 'type': 'enterprise', 'contact_name': '黄经理', 'phone': '13300133007', 'industry': '办公', 'address': '杭州市余杭区'},
-        {'name': '重庆市政府', 'type': 'enterprise', 'contact_name': '周处长', 'phone': '13200132008', 'industry': '办公', 'address': '重庆市渝中区'},
-        {'name': '成都七中', 'type': 'enterprise', 'contact_name': '吴校长', 'phone': '13100131009', 'industry': '学校', 'address': '成都市武侯区'},
-        {'name': '华西医院', 'type': 'enterprise', 'contact_name': '郑主任', 'phone': '13000130010', 'industry': '医院', 'address': '成都市武侯区'},
-    ]
-    count = 0
-    for c in customers:
-        try:
-            r = api('post', '/customers', token, c)
-            if r.get('code') == 200: count += 1
-        except: pass
-    print(f'  [OK] 客户数据: {count}/{len(customers)}')
+customer_map = {}
 
-def seed_work_orders(token):
-    orders = [
-        {'title': '万科渝中花园设备离线', 'type': 'fault', 'priority': 'urgent', 'device_id': 'AQ_重庆市_100', 'description': '设备持续离线超过24小时', 'assignee': '张工'},
-        {'title': '碧桂园设备传感器校准', 'type': 'repair', 'priority': 'high', 'device_id': 'AQ_广州市_200', 'description': 'PM2.5读数偏高', 'assignee': '李工'},
-        {'title': '重庆市政府季度巡检', 'type': 'inspection', 'priority': 'medium', 'description': '季度例行巡检', 'assignee': ''},
-        {'title': '成都七中设备数据异常', 'type': 'fault', 'priority': 'high', 'device_id': 'AQ_成都市_300', 'description': 'AQI数据波动异常', 'assignee': '王工'},
-        {'title': '希尔顿酒店报告延迟', 'type': 'complaint', 'priority': 'medium', 'description': '客户反馈月度报告延迟'},
-        {'title': '阿里园区设备外壳更换', 'type': 'repair', 'priority': 'low', 'device_id': 'AQ_杭州市_400', 'description': '设备外壳老化', 'assignee': '赵工'},
-        {'title': '希尔顿浦东设备重启', 'type': 'fault', 'priority': 'urgent', 'device_id': 'AQ_上海市_500', 'description': '设备频繁自动重启', 'assignee': '张工'},
-    ]
-    count = 0
-    for o in orders:
-        try:
-            r = api('post', '/workorders', token, o)
-            if r.get('code') == 200: count += 1
-        except: pass
-    print(f'  [OK] 售后工单: {count}/{len(orders)}')
+# ── 创建客户（先删旧的）──
+print('\n>>> Customers')
+customers_plan = [
+    # (名称, 类型, 行业, 城市键)
+    ('万科地产集团', 'enterprise', '地产', '深圳南山'),
+    ('华润物业', 'enterprise', '地产', '上海浦东'),
+    ('希尔顿酒店', 'enterprise', '酒店', '北京朝阳'),
+    ('锦江之星', 'enterprise', '酒店', '重庆渝中'),
+    ('华西医院', 'enterprise', '医院', '成都武侯'),
+    ('北大附中', 'enterprise', '学校', '北京朝阳'),
+    ('字节跳动', 'enterprise', '办公', '北京朝阳'),
+    ('顺丰速运', 'enterprise', '工厂', '深圳南山'),
+    ('阿里巴巴', 'enterprise', '办公', '杭州西湖'),
+    ('光谷科技', 'enterprise', '办公', '武汉武昌'),
+    ('苏宁置业', 'enterprise', '地产', '南京鼓楼'),
+    # 重庆本地企业（重点）
+    ('渝中地产集团', 'enterprise', '地产', '重庆渝中'),
+    ('南滨酒店管理', 'enterprise', '酒店', '重庆南岸'),
+    ('山城物流公司', 'enterprise', '工厂', '重庆渝北'),
+    ('巴南教育局', 'enterprise', '学校', '重庆巴南'),
+    # 个人客户
+    ('吴先生', 'individual', '办公', '上海浦东'),
+    ('郑女士', 'individual', '办公', '北京朝阳'),
+    ('黄同学', 'individual', '学校', '杭州西湖'),
+]
 
-def seed_enterprise_reports(token):
-    reports = [
-        {'company_name': '万科地产集团', 'report_title': '2026年5月空气质量月度报告', 'report_type': 'monthly', 'metrics': ['AQI', 'PM2.5'], 'highlights': ['PM2.5同比下降12%', '达标率提升至95%'], 'style': 'formal'},
-        {'company_name': '清华附中', 'report_title': '2026年春季学期教室空气质量报告', 'report_type': 'monthly', 'metrics': ['AQI', 'PM2.5'], 'highlights': ['教室空气质量优秀率92%'], 'style': 'formal'},
-        {'company_name': '希尔顿酒店', 'report_title': '2026年Q2客房空气质量分析', 'report_type': 'quarterly', 'metrics': ['AQI', 'PM2.5'], 'highlights': ['客户满意度提升8%'], 'style': 'casual'},
-    ]
-    count = 0
-    for r in reports:
-        try:
-            resp = api('post', '/reports/enterprise', token, r)
-            if resp.get('code') == 200: count += 1
-        except: pass
-    print(f'  [OK] 企业报告: {count}/{len(reports)}')
+for name, ctype, industry, city_key in customers_plan:
+    r = api('POST', '/customers', {
+        'name': name, 'type': ctype, 'industry': industry,
+        'contact_name': f'{name[:2]}负责人', 'phone': f'138{random.randint(10000000,99999999)}'
+    }, token)
+    if r and r.get('code') == 200:
+        customer_map[name] = r['data']['id']
+        print(f'  OK {name} ({ctype}/{industry}) ')
+    else:
+        print(f'  SKIP {name}')
 
-def seed_smart_reports(token):
-    count = 0
-    for rtype in ['daily', 'weekly', 'monthly']:
-        try:
-            resp = api('post', '/reports/generate', token, {'type': rtype})
-            if resp.get('code') == 200: count += 1
-        except: pass
-    print(f'  [OK] 智能报告: {count}/3')
+# ── 按客户创建设备（企业多台，重庆重点）──
+print('\n>>> Devices')
+all_devices_for_config = []
 
-if __name__ == '__main__':
-    print('=' * 50)
-    print('[SEED] 开始填充业务数据...')
-    print('=' * 50)
+def make_device(name, cid, city_key, dev_name):
+    """创建设备并返回真实 device_id"""
+    lat, lng, prov, city, district = CT[city_key]
+    lat += random.uniform(-0.01, 0.01)
+    lng += random.uniform(-0.01, 0.01)
+    r = api('POST', '/devices', {
+        'name': dev_name, 'product_model': 'AirInsight Pro 2025',
+        'district': district, 'customer_id': cid,
+        'latitude': round(lat, 4), 'longitude': round(lng, 4)
+    }, token)
+    if r and r.get('code') == 200:
+        real_id = r['data'].get('device_id', '')
+        # 激活
+        all_devs = api('GET', '/devices', token=token)
+        if all_devs and all_devs.get('code') == 200:
+            for d in all_devs.get('data', []):
+                if isinstance(d, dict) and d.get('device_id') == real_id:
+                    api('PUT', f'/devices/{d["id"]}', {'activation_status': 'activated'}, token)
+                    break
+        return real_id, lat, lng, prov, city, district
+    return None, lat, lng, prov, city, district
 
-    token = get_token()
-    print(f'[OK] 登录成功')
+# 企业设备方案：{客户名: (城市键, [设备名列表])}
+plan = {
+    '万科地产集团': ('深圳南山', ['总部监测仪A', '总部监测仪B', '花园监测仪', '新城监测仪', '会所监测仪']),
+    '华润物业': ('上海浦东', ['华润大厦', '万象城', '华润广场', '华润中心', '生活馆']),
+    '希尔顿酒店': ('北京朝阳', ['大堂监测仪', '客房楼层A', '健身房', '会议室', '餐厅']),
+    '锦江之星': ('重庆渝中', ['大堂监测仪', '客房A区', '客房B区', '餐厅', '大厅']),
+    '华西医院': ('成都武侯', ['门诊楼', '住院部A', '住院部B', '急诊中心', '行政楼']),
+    '北大附中': ('北京朝阳', ['教学楼A', '体育馆', '图书馆', '实验室', '食堂']),
+    '字节跳动': ('北京朝阳', ['总部1层', '总部5层', '总部10层', '总部15层', '健身房']),
+    '顺丰速运': ('深圳南山', ['仓储中心', '分拣中心A', '分拣中心B', '办公区', '调度室']),
+    '阿里巴巴': ('杭州西湖', ['西溪园区A', '西溪园区B', '滨江园区', '云谷校区', '访客中心']),
+    '光谷科技': ('武汉武昌', ['研发中心A', '研发中心B', '测试中心', '数据中心', '办公区']),
+    '苏宁置业': ('南京鼓楼', ['总部办公楼', '苏宁广场A', '苏宁广场B', '售后中心', '体验店']),
+    # 重庆重点
+    '渝中地产集团': ('重庆渝中', ['解放碑监测仪', '洪崖洞监测仪', '朝天门监测仪', '大坪监测仪', '上清寺监测仪']),
+    '南滨酒店管理': ('重庆南岸', ['南滨路A', '南滨路B', '南坪监测仪', '弹子石监测仪', '茶园监测仪']),
+    '山城物流公司': ('重庆渝北', ['物流园区A', '物流园区B', '空港监测仪', '龙头寺监测仪', '保税区监测仪']),
+    '巴南教育局': ('重庆巴南', ['巴南中学', '鱼洞小学', '龙洲湾校区', '李家沱校区', '花溪校区']),
+    # 个人
+    '吴先生': ('上海浦东', ['客厅检测仪']),
+    '郑女士': ('北京朝阳', ['卧室检测仪']),
+    '黄同学': ('杭州西湖', ['书房检测仪']),
+}
 
-    print('\n[1/6] 产品型号...')
-    seed_products(token)
+# 给重庆没在客户列表里的区也各补5台(挂在已有重庆客户名下)
+extra_cq = {
+    '重庆江北': '渝中地产集团',
+    '重庆沙坪坝': '渝中地产集团',
+    '重庆九龙坡': '南滨酒店管理',
+    '重庆大渡口': '南滨酒店管理',
+    '重庆北碚': '山城物流公司',
+}
+for city_key, cn in extra_cq.items():
+    plan.setdefault(cn, (city_key, []))[1].extend([f'{city_key}监测点{i+1}' for i in range(5)])
 
-    print('\n[2/6] 客户数据...')
-    seed_customers(token)
+for name, (city_key, dev_names) in plan.items():
+    cid = customer_map.get(name)
+    if not cid: continue
+    for dn in dev_names:
+        rid, lat, lng, prov, city, district = make_device(name, cid, city_key, dn)
+        if rid:
+            print(f'  OK {rid} {dn} ({district}) -> {name}')
+            all_devices_for_config.append({
+                'code': rid, 'name': dn,
+                'longitude': lng, 'latitude': lat,
+                'customer_id': str(cid), 'company_name': name,
+                'province': prov, 'city': city, 'district': district
+            })
 
-    print('\n[3/6] 售后工单...')
-    seed_work_orders(token)
+print(f'\n  Total devices: {len(all_devices_for_config)}')
 
-    print('\n[4/6] 智能报告...')
-    seed_smart_reports(token)
+# ── 工单 ──
+print('\n>>> Work orders')
+for i, (title, wtype, priority) in enumerate([
+    ('AQI数据异常升高', 'fault', 'urgent'),
+    ('传感器需要校准', 'repair', 'high'),
+    ('设备离线超过2小时', 'fault', 'urgent'),
+    ('定期巡检维护', 'inspection', 'medium'),
+    ('用户投诉空气有异味', 'complaint', 'high'),
+    ('设备更换滤网', 'repair', 'medium'),
+    ('数据上报延迟', 'fault', 'low'),
+    ('PM2.5传感器故障', 'fault', 'high'),
+    ('季度预防性维护', 'inspection', 'low'),
+    ('设备安装位置调整', 'repair', 'medium'),
+]):
+    d = all_devices_for_config[i % len(all_devices_for_config)] if all_devices_for_config else {}
+    cid = int(d.get('customer_id', '')) if d.get('customer_id') else None
+    r = api('POST', '/workorders', {
+        'title': title, 'type': wtype, 'priority': priority,
+        'description': f'自动生成: {title}',
+        'device_id': d.get('code', ''), 'customer_id': cid
+    }, token)
+    if r and r.get('code') == 200: print(f'  OK {title}')
 
-    print('\n[5/6] 企业报告...')
-    seed_enterprise_reports(token)
+# ── 告警规则 ──
+print('\n>>> Alert rules')
+for name, metric, op, thresh, sev in [
+    ('AQI严重超标', 'aqi', '>', 150, 'critical'),
+    ('AQI警告', 'aqi', '>', 100, 'warning'),
+    ('PM2.5偏高', 'pm25', '>', 75, 'warning'),
+    ('O3超标', 'o3', '>', 100, 'info'),
+]:
+    r = api('POST', '/alerts/rules', {'name': name, 'metric': metric, 'operator': op, 'threshold': thresh, 'severity': sev, 'enabled': 1}, token)
+    print(f'  {"OK" if r and r.get("code")==200 else "SKIP"} {name}')
 
-    print('\n' + '=' * 50)
-    print('[DONE] 业务数据填充完成！')
-    print('=' * 50)
+# ── 企业报告 ──
+print('\n>>> Enterprise reports')
+for cname in ['万科地产集团', '华西医院', '字节跳动', '渝中地产集团', '华润物业']:
+    cid = customer_map.get(cname)
+    if not cid: continue
+    r = api('POST', '/reports/enterprise', {
+        'customer_id': cid, 'report_title': f'{cname}2026年6月空气质量月报',
+        'report_type': 'monthly', 'style': 'formal', 'highlights': ['设备运行稳定', '达标率良好']
+    }, token)
+    if r and r.get('code') == 200: print(f'  OK {cname} (report_id={r["data"]["id"]})')
+    else: print(f'  FAIL {cname}: {r.get("msg","?") if r else "error"}')
+
+# ── 企业信息 ──
+print('\n>>> Company info')
+api('PUT', '/company-info', {
+    'name': 'AirInsight 智能空气监测平台', 'address': '北京市朝阳区科技园A座',
+    'contact_name': '运营团队', 'contact_phone': '400-888-8888',
+    'contact_email': 'support@airinsight.com',
+    'description': '企业级空气质量监测与数据分析平台，提供实时监测、智能告警、大数据分析、AI报告等一站式服务'
+}, token)
+print('  OK')
+
+# ── 导出 device_config.json ──
+with open('d:/软件设计/server/device_config.json', 'w', encoding='utf-8') as f:
+    json.dump({'devices': all_devices_for_config}, f, ensure_ascii=False, indent=2)
+
+print('\n' + '='*60)
+print(f'SEED COMPLETE: {len(customer_map)} customers, {len(all_devices_for_config)} devices')
+print('Now run: PYTHONIOENCODING=utf-8 python simulator/air_detector.py --enterprise --api-endpoint https://47.109.191.13/api/air-quality --api-header X-API-Key=111 --frequency 3000')
+print('='*60)
