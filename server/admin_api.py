@@ -527,10 +527,10 @@ def dashboard_realtime():
                 results.append({
                     'device_id': did,
                     'aqi': data.get('AQI'),
-                    'pm25': data.get('PM₂.₅'),
-                    'no2': data.get('NO₂'),
-                    'so2': data.get('SO₂'),
-                    'o3': data.get('O₃'),
+                    'pm25': data.get('pm25'),
+                    'no2': data.get('no2'),
+                    'so2': data.get('so2'),
+                    'o3': data.get('o3'),
                     'timestamp': doc.get('timestamp'),
                     'server_time': doc.get('server_time'),
                     'location': {
@@ -590,7 +590,7 @@ def dashboard_trend():
             {'$group': {
                 '_id': {'$substr': ['$timestamp', 0, 13]},  # 按小时分组
                 'avg_aqi': {'$avg': '$data.AQI'},
-                'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                'avg_pm25': {'$avg': '$data.pm25'},
                 'count': {'$sum': 1}
             }},
             {'$sort': {'_id': 1}}
@@ -731,10 +731,10 @@ def dashboard_diagnostics():
                 '_id': None,
                 'avg_aqi': {'$avg': '$data.AQI'},
                 'max_aqi': {'$max': '$data.AQI'},
-                'avg_pm25': {'$avg': '$data.PM₂.₅'},
-                'avg_no2': {'$avg': '$data.NO₂'},
-                'avg_so2': {'$avg': '$data.SO₂'},
-                'avg_o3': {'$avg': '$data.O₃'},
+                'avg_pm25': {'$avg': '$data.pm25'},
+                'avg_no2': {'$avg': '$data.no2'},
+                'avg_so2': {'$avg': '$data.so2'},
+                'avg_o3': {'$avg': '$data.o3'},
                 'count': {'$sum': 1}
             }}
         ]
@@ -818,10 +818,10 @@ def dashboard_diagnostics_detail(site_id):
             '_id': None,
             'avg_aqi': {'$avg': '$data.AQI'},
             'max_aqi': {'$max': '$data.AQI'},
-            'avg_pm25': {'$avg': '$data.PM₂.₅'},
-            'avg_no2': {'$avg': '$data.NO₂'},
-            'avg_so2': {'$avg': '$data.SO₂'},
-            'avg_o3': {'$avg': '$data.O₃'},
+            'avg_pm25': {'$avg': '$data.pm25'},
+            'avg_no2': {'$avg': '$data.no2'},
+            'avg_so2': {'$avg': '$data.so2'},
+            'avg_o3': {'$avg': '$data.o3'},
             'count': {'$sum': 1}
         }}
     ]
@@ -856,7 +856,7 @@ def dashboard_diagnostics_detail(site_id):
         {'$group': {
             '_id': {'$substr': ['$timestamp', 0, 10]},
             'avg_aqi': {'$avg': '$data.AQI'},
-            'avg_pm25': {'$avg': '$data.PM₂.₅'},
+            'avg_pm25': {'$avg': '$data.pm25'},
             'count': {'$sum': 1}
         }},
         {'$sort': {'_id': 1}}
@@ -1623,10 +1623,10 @@ def get_comparison_data():
                 {'$group': {
                     '_id': {'$substr': ['$timestamp', 0, 13]},
                     'avg_aqi': {'$avg': '$data.AQI'},
-                    'avg_pm25': {'$avg': '$data.PM₂.₅'},
-                    'avg_no2': {'$avg': '$data.NO₂'},
-                    'avg_so2': {'$avg': '$data.SO₂'},
-                    'avg_o3': {'$avg': '$data.O₃'},
+                    'avg_pm25': {'$avg': '$data.pm25'},
+                    'avg_no2': {'$avg': '$data.no2'},
+                    'avg_so2': {'$avg': '$data.so2'},
+                    'avg_o3': {'$avg': '$data.o3'},
                     'count': {'$sum': 1}
                 }},
                 {'$sort': {'_id': 1}}
@@ -1669,10 +1669,10 @@ def get_report_data():
                 'avg_aqi': {'$avg': '$data.AQI'},
                 'max_aqi': {'$max': '$data.AQI'},
                 'min_aqi': {'$min': '$data.AQI'},
-                'avg_pm25': {'$avg': '$data.PM₂.₅'},
-                'avg_no2': {'$avg': '$data.NO₂'},
-                'avg_so2': {'$avg': '$data.SO₂'},
-                'avg_o3': {'$avg': '$data.O₃'},
+                'avg_pm25': {'$avg': '$data.pm25'},
+                'avg_no2': {'$avg': '$data.no2'},
+                'avg_so2': {'$avg': '$data.so2'},
+                'avg_o3': {'$avg': '$data.o3'},
                 'count': {'$sum': 1}
             }},
             {'$sort': {'_id': 1}}
@@ -1731,10 +1731,10 @@ def export_report():
                 doc.get('timestamp', ''),
                 doc.get('device_id', ''),
                 data.get('AQI', ''),
-                data.get('PM₂.₅', ''),
-                data.get('NO₂', ''),
-                data.get('SO₂', ''),
-                data.get('O₃', '')
+                data.get('pm25', ''),
+                data.get('no2', ''),
+                data.get('so2', ''),
+                data.get('o3', '')
             ])
 
         csv_content = output.getvalue()
@@ -1800,10 +1800,10 @@ def get_rankings():
                 'avg_aqi': {'$avg': '$data.AQI'},
                 'max_aqi': {'$max': '$data.AQI'},
                 'min_aqi': {'$min': '$data.AQI'},
-                'avg_pm25': {'$avg': '$data.PM₂.₅'},
-                'avg_no2': {'$avg': '$data.NO₂'},
-                'avg_so2': {'$avg': '$data.SO₂'},
-                'avg_o3': {'$avg': '$data.O₃'},
+                'avg_pm25': {'$avg': '$data.pm25'},
+                'avg_no2': {'$avg': '$data.no2'},
+                'avg_so2': {'$avg': '$data.so2'},
+                'avg_o3': {'$avg': '$data.o3'},
                 'device_count': {'$addToSet': '$device_id'},
                 'total_records': {'$sum': 1}
             }},
@@ -2103,7 +2103,7 @@ def generate_report():
                 'avg_aqi': {'$avg': '$data.AQI'},
                 'max_aqi': {'$max': '$data.AQI'},
                 'min_aqi': {'$min': '$data.AQI'},
-                'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                'avg_pm25': {'$avg': '$data.pm25'},
                 'count': {'$sum': 1}
             }}
         ]
@@ -2385,10 +2385,10 @@ def get_realtime_by_device(device_id):
             'data': {
                 'device_id': device_id,
                 'aqi': data.get('AQI'),
-                'pm25': data.get('PM₂.₅'),
-                'no2': data.get('NO₂'),
-                'so2': data.get('SO₂'),
-                'o3': data.get('O₃'),
+                'pm25': data.get('pm25'),
+                'no2': data.get('no2'),
+                'so2': data.get('so2'),
+                'o3': data.get('o3'),
                 'timestamp': doc.get('timestamp'),
                 'server_time': doc.get('server_time')
             }
@@ -2443,7 +2443,7 @@ def get_map_data():
             'longitude': float(site['longitude']) if site['longitude'] else None,
             'latitude': float(site['latitude']) if site['latitude'] else None,
             'aqi': latest.get('AQI') if latest else None,
-            'pm25': latest.get('PM₂.₅') if latest else None,
+            'pm25': latest.get('pm25') if latest else None,
             'device_count': len(devices)
         })
 
@@ -2507,10 +2507,10 @@ def get_poor_air_users():
             '_id': '$device_id',
             'avg_aqi': {'$avg': '$data.AQI'},
             'max_aqi': {'$max': '$data.AQI'},
-            'avg_pm25': {'$avg': '$data.PM₂.₅'},
-            'avg_no2': {'$avg': '$data.NO₂'},
-            'avg_so2': {'$avg': '$data.SO₂'},
-            'avg_o3': {'$avg': '$data.O₃'},
+            'avg_pm25': {'$avg': '$data.pm25'},
+            'avg_no2': {'$avg': '$data.no2'},
+            'avg_so2': {'$avg': '$data.so2'},
+            'avg_o3': {'$avg': '$data.o3'},
             'total_records': {'$sum': 1},
             'exceed_days': {
                 '$sum': {
@@ -2638,10 +2638,10 @@ def export_poor_air_users():
             '_id': '$device_id',
             'avg_aqi': {'$avg': '$data.AQI'},
             'max_aqi': {'$max': '$data.AQI'},
-            'avg_pm25': {'$avg': '$data.PM₂.₅'},
-            'avg_no2': {'$avg': '$data.NO₂'},
-            'avg_so2': {'$avg': '$data.SO₂'},
-            'avg_o3': {'$avg': '$data.O₃'},
+            'avg_pm25': {'$avg': '$data.pm25'},
+            'avg_no2': {'$avg': '$data.no2'},
+            'avg_so2': {'$avg': '$data.so2'},
+            'avg_o3': {'$avg': '$data.o3'},
             'exceed_days': {
                 '$sum': {'$cond': [{'$gte': ['$data.AQI', aqi_threshold]}, 1, 0]}
             }
@@ -2786,10 +2786,10 @@ def generate_enterprise_report():
             'avg_aqi': {'$avg': '$data.AQI'},
             'max_aqi': {'$max': '$data.AQI'},
             'min_aqi': {'$min': '$data.AQI'},
-            'avg_pm25': {'$avg': '$data.PM₂.₅'},
-            'avg_no2': {'$avg': '$data.NO₂'},
-            'avg_so2': {'$avg': '$data.SO₂'},
-            'avg_o3': {'$avg': '$data.O₃'},
+            'avg_pm25': {'$avg': '$data.pm25'},
+            'avg_no2': {'$avg': '$data.no2'},
+            'avg_so2': {'$avg': '$data.so2'},
+            'avg_o3': {'$avg': '$data.o3'},
             'total_records': {'$sum': 1},
             'device_count': {'$addToSet': '$device_id'}
         }}
@@ -2836,10 +2836,10 @@ def generate_enterprise_report():
             '_id': {'$substr': ['$timestamp', 0, 10]},
             'avg_aqi': {'$avg': '$data.AQI'},
             'max_aqi': {'$max': '$data.AQI'},
-            'avg_pm25': {'$avg': '$data.PM₂.₅'},
-            'avg_no2': {'$avg': '$data.NO₂'},
-            'avg_so2': {'$avg': '$data.SO₂'},
-            'avg_o3': {'$avg': '$data.O₃'},
+            'avg_pm25': {'$avg': '$data.pm25'},
+            'avg_no2': {'$avg': '$data.no2'},
+            'avg_so2': {'$avg': '$data.so2'},
+            'avg_o3': {'$avg': '$data.o3'},
             'count': {'$sum': 1}
         }},
         {'$sort': {'_id': 1}}
@@ -2871,10 +2871,10 @@ def generate_enterprise_report():
                 'avg_aqi': {'$avg': '$data.AQI'},
                 'max_aqi': {'$max': '$data.AQI'},
                 'min_aqi': {'$min': '$data.AQI'},
-                'avg_pm25': {'$avg': '$data.PM₂.₅'},
-                'avg_no2': {'$avg': '$data.NO₂'},
-                'avg_so2': {'$avg': '$data.SO₂'},
-                'avg_o3': {'$avg': '$data.O₃'},
+                'avg_pm25': {'$avg': '$data.pm25'},
+                'avg_no2': {'$avg': '$data.no2'},
+                'avg_so2': {'$avg': '$data.so2'},
+                'avg_o3': {'$avg': '$data.o3'},
                 'count': {'$sum': 1},
                 'exceed_count': {'$sum': {'$cond': [{'$gte': ['$data.AQI', 100]}, 1, 0]}}
             }},
@@ -2909,10 +2909,10 @@ def generate_enterprise_report():
         {'$match': match_filter},
         {'$group': {
             '_id': None,
-            'pm25_exceed': {'$sum': {'$cond': [{'$gt': ['$data.PM₂.₅', 75]}, 1, 0]}},
-            'no2_exceed': {'$sum': {'$cond': [{'$gt': ['$data.NO₂', 80]}, 1, 0]}},
-            'so2_exceed': {'$sum': {'$cond': [{'$gt': ['$data.SO₂', 50]}, 1, 0]}},
-            'o3_exceed': {'$sum': {'$cond': [{'$gt': ['$data.O₃', 100]}, 1, 0]}},
+            'pm25_exceed': {'$sum': {'$cond': [{'$gt': ['$data.pm25', 75]}, 1, 0]}},
+            'no2_exceed': {'$sum': {'$cond': [{'$gt': ['$data.no2', 80]}, 1, 0]}},
+            'so2_exceed': {'$sum': {'$cond': [{'$gt': ['$data.so2', 50]}, 1, 0]}},
+            'o3_exceed': {'$sum': {'$cond': [{'$gt': ['$data.o3', 100]}, 1, 0]}},
             'total': {'$sum': 1}
         }}
     ]))
@@ -2980,7 +2980,7 @@ def generate_enterprise_report():
         {'$group': {
             '_id': None,
             'avg_aqi': {'$avg': '$data.AQI'},
-            'avg_pm25': {'$avg': '$data.PM₂.₅'},
+            'avg_pm25': {'$avg': '$data.pm25'},
             'total_records': {'$sum': 1},
             'good_count': {'$sum': {'$cond': [{'$lte': ['$data.AQI', 100]}, 1, 0]}}
         }}
@@ -3239,10 +3239,10 @@ def report_chart_data(rid):
         {'$group': {'_id': {'$substr': ['$timestamp', 0, 10]},
                      'avg_aqi': {'$avg': '$data.AQI'},
                      'max_aqi': {'$max': '$data.AQI'},
-                     'avg_pm25': {'$avg': '$data.PM₂.₅'},
-                     'avg_no2': {'$avg': '$data.NO₂'},
-                     'avg_so2': {'$avg': '$data.SO₂'},
-                     'avg_o3': {'$avg': '$data.O₃'},
+                     'avg_pm25': {'$avg': '$data.pm25'},
+                     'avg_no2': {'$avg': '$data.no2'},
+                     'avg_so2': {'$avg': '$data.so2'},
+                     'avg_o3': {'$avg': '$data.o3'},
                      'count': {'$sum': 1}}},
         {'$sort': {'_id': 1}}
     ]))
@@ -3284,10 +3284,10 @@ def report_chart_data(rid):
     totals = list(coll.aggregate([
         {'$match': match_filter},
         {'$group': {'_id': None,
-                     'avg_pm25': {'$avg': '$data.PM₂.₅'},
-                     'avg_no2': {'$avg': '$data.NO₂'},
-                     'avg_so2': {'$avg': '$data.SO₂'},
-                     'avg_o3': {'$avg': '$data.O₃'}}}
+                     'avg_pm25': {'$avg': '$data.pm25'},
+                     'avg_no2': {'$avg': '$data.no2'},
+                     'avg_so2': {'$avg': '$data.so2'},
+                     'avg_o3': {'$avg': '$data.o3'}}}
     ]))
     if totals:
         t = totals[0]
@@ -3307,7 +3307,7 @@ def report_chart_data(rid):
         {'$match': {'timestamp': {'$gte': prev_start, '$lt': prev_end}}},
         {'$group': {'_id': None,
                      'avg_aqi': {'$avg': '$data.AQI'},
-                     'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                     'avg_pm25': {'$avg': '$data.pm25'},
                      'total_records': {'$sum': 1},
                      'good_count': {'$sum': {'$cond': [{'$lte': ['$data.AQI', 100]}, 1, 0]}}}}
     ]))
@@ -3329,7 +3329,7 @@ def report_chart_data(rid):
             {'$match': match_filter},
             {'$group': {'_id': None,
                          'avg_aqi': {'$avg': '$data.AQI'},
-                         'avg_pm25': {'$avg': '$data.PM₂.₅'},
+                         'avg_pm25': {'$avg': '$data.pm25'},
                          'total_records': {'$sum': 1},
                          'good_count': {'$sum': {'$cond': [{'$lte': ['$data.AQI', 100]}, 1, 0]}}}}
         ]))
@@ -3696,7 +3696,7 @@ def get_device_distribution():
         city = loc.get('city', '未知')
         district = loc.get('district', '未知')
         aqi = data.get('AQI', 0) or 0
-        pm25 = data.get('PM₂.₅', 0) or 0
+        pm25 = data.get('pm25', 0) or 0
         is_online = doc.get('timestamp', '') >= five_min_ago
 
         if province not in province_map:

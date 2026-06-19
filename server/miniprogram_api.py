@@ -101,7 +101,7 @@ def _build_set(body, allowed):
 # ====================================================================
 
 _FIELD_MAP = [
-    ('AQI', 'aqi'), ('PM₂.₅', 'pm2_5'), ('NO₂', 'no2'), ('SO₂', 'so2'), ('O₃', 'o3'),
+    ('AQI', 'aqi'), ('pm25', 'pm2_5'), ('no2', 'no2'), ('so2', 'so2'), ('o3', 'o3'),
 ]
 
 
@@ -170,9 +170,23 @@ def receive_air_quality_data():
         logger.info(f"[{now}] 来源IP: {client_ip} - 数据: {data.get('data', {})}")
 
         if _srv.redis_client:
+            # 统一字段名：Unicode → ASCII
+            raw_data = data.get('data', {})
+            clean_data = {}
+            for k, v in raw_data.items():
+                if k == 'PM₂.₅':
+                    clean_data['pm25'] = v
+                elif k == 'NO₂':
+                    clean_data['no2'] = v
+                elif k == 'SO₂':
+                    clean_data['so2'] = v
+                elif k == 'O₃':
+                    clean_data['o3'] = v
+                else:
+                    clean_data[k] = v
             record = {
                 "timestamp": data.get('timestamp'),
-                "data": json.dumps(data.get('data')),
+                "data": json.dumps(clean_data),
                 "device_id": data.get('device_id', client_ip),
                 "client_ip": client_ip,
                 "server_time": datetime.now().isoformat()
@@ -697,7 +711,7 @@ def daily_summary():
             for doc in docs:
                 d = doc.get('data', {})
                 aqi = d.get('AQI')
-                pm25 = d.get('PM₂.₅')
+                pm25 = d.get('pm25')
                 if aqi is not None: aqi_vals.append(float(aqi))
                 if pm25 is not None: pm25_vals.append(float(pm25))
             mongo_client.close()
@@ -756,7 +770,7 @@ def daily_summary():
             for doc in docs:
                 d = doc.get('data', {})
                 aqi = d.get('AQI')
-                pm25 = d.get('PM₂.₅')
+                pm25 = d.get('pm25')
                 if aqi is not None: aqi_vals.append(float(aqi))
                 if pm25 is not None: pm25_vals.append(float(pm25))
             mongo_client.close()
@@ -848,12 +862,12 @@ def ai_analyze():
         for doc in docs:
             d = doc.get('data', {})
             records.append({
-                'time': doc.get('timestamp', '')[-8:5],
+                'time': doc.get('timestamp', '')[-8:],
                 'AQI': round(float(d.get('AQI', 0)), 1),
-                'PM2.5': round(float(d.get('PM₂.₅', 0)), 1),
-                'NO₂': round(float(d.get('NO₂', 0)), 1),
-                'SO₂': round(float(d.get('SO₂', 0)), 1),
-                'O₃': round(float(d.get('O₃', 0)), 1)
+                'PM2.5': round(float(d.get('pm25', 0)), 1),
+                'NO₂': round(float(d.get('no2', 0)), 1),
+                'SO₂': round(float(d.get('so2', 0)), 1),
+                'O₃': round(float(d.get('o3', 0)), 1)
             })
     except Exception as e:
         logger.error(f"AI分析: 取数据失败 {e}")

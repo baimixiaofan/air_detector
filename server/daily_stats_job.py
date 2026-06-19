@@ -115,14 +115,12 @@ def compute_daily_stats():
         mongo_client, collection = get_mongo_collection()
 
         pipeline = [
-            # 匹配昨天的时间戳（timestamp 字段格式: "YYYY-MM-DD HH:MM:SS"）
             {"$match": {"timestamp": {"$regex": f"^{yesterday}"}}},
-            # 按 device_id 分组（优先），兼容旧数据用 client_ip
             {"$group": {
                 "_id": {"$ifNull": ["$device_id", "$client_ip"]},
                 "avg_aqi":   {"$avg": "$data.AQI"},
                 "max_aqi":   {"$max": "$data.AQI"},
-                "avg_pm2_5": {"$avg": "$data.PM₂.₅"}
+                "avg_pm2_5": {"$avg": "$data.pm25"}
             }}
         ]
 
