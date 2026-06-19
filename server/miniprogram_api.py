@@ -890,7 +890,7 @@ def ai_analyze():
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute('SELECT room_location FROM user_devices WHERE device_id=%s LIMIT 1', (device_id,))
+        cur.execute('SELECT room_location FROM devices WHERE device_id=%s LIMIT 1', (device_id,))
         row = cur.fetchone()
         if row and row['room_location']:
             loc_map = {
@@ -969,29 +969,34 @@ def login():
         return _err('缺少 code 参数')
 
     # 调微信接口换 open_id
-    try:
-        logger.info(f"[登录] 请求微信接口, code前8位: {code[:8]}...")
-        resp = _requests.get(
-            'https://api.weixin.qq.com/sns/jscode2session',
-            params={
-                'appid': WECHAT_APPID,
-                'secret': WECHAT_SECRET,
-                'js_code': code,
-                'grant_type': 'authorization_code'
-            },
-            timeout=10
-        )
-        wx_data = resp.json()
-        logger.info(f"[登录] 微信返回: {wx_data}")
-    except Exception as e:
-        logger.error(f"[登录] 调用微信接口失败: {e}")
-        return _err('微信登录失败', 500)
+    if not WECHAT_APPID or not WECHAT_SECRET:
+        logger.warning(f"[登录] 微信未配置(WECHAT_APPID/WECHAT_SECRET)，使用开发模式 - IP: {client_ip}")
+        open_id = f"dev_{client_ip}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        logger.info(f"[登录] 开发模式生成 open_id: {open_id}")
+    else:
+        try:
+            logger.info(f"[登录] 请求微信接口, code前8位: {code[:8]}...")
+            resp = _requests.get(
+                'https://api.weixin.qq.com/sns/jscode2session',
+                params={
+                    'appid': WECHAT_APPID,
+                    'secret': WECHAT_SECRET,
+                    'js_code': code,
+                    'grant_type': 'authorization_code'
+                },
+                timeout=10
+            )
+            wx_data = resp.json()
+            logger.info(f"[登录] 微信返回: {wx_data}")
+        except Exception as e:
+            logger.error(f"[登录] 调用微信接口失败: {e}")
+            return _err('微信登录失败', 500)
 
-    if 'openid' not in wx_data:
-        logger.error(f"[登录] 微信返回异常: {wx_data}")
-        return _err('微信登录失败: ' + wx_data.get('errmsg', '未知错误'), 401)
+        if 'openid' not in wx_data:
+            logger.error(f"[登录] 微信返回异常: {wx_data}")
+            return _err('微信登录失败: ' + wx_data.get('errmsg', '未知错误'), 401)
 
-    open_id = wx_data['openid']
+        open_id = wx_data['openid']
     logger.info(f"[登录] 获取到 open_id: {open_id}")
 
     conn = None
@@ -1031,6 +1036,16 @@ def bind_device():
         return _err('缺少 open_id 或 device_id 参数')
 
     room_location = body.get('room_location', 'living_room')
+    device_name = body.get('device_name', '').strip() or None
+    province = body.get('province', '').strip() or None
+    city = body.get('city', '').strip() or None
+    district = body.get('district', '').strip() or None
+    customer_type = body.get('customer_type', 'individual')
+    industry = body.get('industry', '').strip() or None
+    if customer_type not in ('individual', 'enterprise'):
+        customer_type = 'individual'
+    if customer_type == 'enterprise' and not industry:
+        return _err('企业用户必须填写行业类型')
 
     # 校验设备 ID 是否在配置文件中
     valid_ids = _get_valid_device_ids()
@@ -1041,15 +1056,28 @@ def bind_device():
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute('SELECT id FROM user_devices WHERE open_id=%s AND device_id=%s', (open_id, device_id))
-        if cur.fetchone():
-            cur.execute('UPDATE user_devices SET room_location=%s WHERE open_id=%s AND device_id=%s', (room_location, open_id, device_id))
+        # 检查设备是否已被其他用户绑定
+        cur.execute('SELECT id, open_id FROM devices WHERE device_id=%s', (device_id,))
+        row = cur.fetchone()
+        if row:
+            if row['open_id'] is not None and row['open_id'] != open_id:
+                return _err('该设备已被其他用户绑定', 400)
+            # 更新绑定信息
+            cur.execute('''UPDATE devices SET open_id=%s, room_location=%s, device_name=%s, province=%s, city=%s, district=%s,
+                customer_type=%s, industry=%s,                 contact_name=(SELECT COALESCE(nickname, CONCAT('用户', LEFT(open_id, 8))) FROM users WHERE open_id=%s), bind_time=NOW()
+                WHERE device_id=%s''',
+                (open_id, room_location, device_name, province, city, district, customer_type, industry, open_id, device_id))
         else:
-            cur.execute('INSERT INTO user_devices (open_id, device_id, room_location) VALUES (%s, %s, %s)', (open_id, device_id, room_location))
+            # 首次绑定：插入新记录
+            cur.execute('''INSERT INTO devices
+                (open_id, device_id, device_name, room_location, province, city, district, customer_type, industry, contact_name, bind_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,                 (SELECT COALESCE(nickname, CONCAT('用户', LEFT(open_id, 8))) FROM users WHERE open_id=%s), NOW())''',
+                (open_id, device_id, device_name, room_location, province, city, district, customer_type, industry, open_id))
         conn.commit()
         return _ok(message='绑定成功')
     except pymysql.Error as e:
         if conn: conn.rollback()
+        logger.error(f"[绑定] 数据库操作失败: {e}")
         return _err('绑定失败', 500)
     finally:
         if conn: conn.close()
@@ -1065,7 +1093,8 @@ def unbind_device():
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute('DELETE FROM user_devices WHERE open_id=%s AND device_id=%s', (open_id, device_id))
+        cur.execute("UPDATE devices SET open_id=NULL, contact_name=NULL, device_name=NULL, bind_time=NULL "
+                    "WHERE open_id=%s AND device_id=%s", (open_id, device_id))
         conn.commit()
         return _ok(message='解绑成功')
     except pymysql.Error as e:
@@ -1085,15 +1114,12 @@ def list_devices():
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute('SELECT device_id, bind_time, room_location FROM user_devices WHERE open_id=%s', (open_id,))
+        cur.execute('SELECT device_id, device_name, contact_name, bind_time, room_location, province, city, district, customer_type, industry, location_name, longitude, latitude FROM devices WHERE open_id=%s', (open_id,))
         bound = cur.fetchall()
         if not bound:
             return _ok([])
 
         device_ids = [r['device_id'] for r in bound]
-        ph = ','.join(['%s'] * len(device_ids))
-        cur.execute(f'SELECT device_id, location_name, longitude, latitude FROM devices WHERE device_id IN ({ph})', device_ids)
-        device_info = {r['device_id']: r for r in cur.fetchall()}
 
         mongo_client, col = _get_mongo()
         pipeline = [
@@ -1107,7 +1133,6 @@ def list_devices():
         result = []
         for b in bound:
             did = b['device_id']
-            info = device_info.get(did, {})
             lat = latest.get(did, {})
             is_online = False
             if lat.get('server_time'):
@@ -1118,10 +1143,17 @@ def list_devices():
                 except (ValueError, AttributeError):
                     pass
             result.append({
-                'device_id': did, 'location_name': info.get('location_name', ''),
+                'device_id': did, 'device_name': b.get('device_name') or b.get('location_name', ''),
+                'location_name': b.get('location_name', ''),
                 'status': 'online' if is_online else 'offline',
                 'room_location': b.get('room_location', 'living_room'),
-                'last_longitude': info.get('longitude'), 'last_latitude': info.get('latitude'),
+                'province': b.get('province', ''),
+                'city': b.get('city', ''),
+                'district': b.get('district', ''),
+                'customer_type': b.get('customer_type', 'individual'),
+                'industry': b.get('industry', ''),
+                'contact_name': b.get('contact_name', ''),
+                'last_longitude': b.get('longitude'), 'last_latitude': b.get('latitude'),
                 'last_update': lat.get('latest_time', ''),
                 'bind_time': b['bind_time'].strftime('%Y-%m-%d %H:%M:%S') if b.get('bind_time') else ''
             })
@@ -1157,6 +1189,50 @@ def update_location():
         return _err('位置更新失败', 500)
     finally:
         if conn: conn.close()
+
+
+# ====================================================================
+# 行政区划 /api/regions
+# ====================================================================
+
+@miniprogram.route('/api/regions', methods=['GET'])
+def get_regions():
+    """返回从 MongoDB 设备历史数据 location 字段提取的省/市/区三级数据"""
+    mongo_client = None
+    try:
+        mongo_client, col = _get_mongo()
+        pipeline = [
+            {'$match': {'location.province': {'$ne': None, '$ne': ''}}},
+            {'$group': {
+                '_id': {
+                    'p': '$location.province',
+                    'c': '$location.city',
+                    'd': '$location.district'
+                }
+            }}
+        ]
+        rows = list(col.aggregate(pipeline))
+        region = {}
+        for r in rows:
+            p = (r['_id'].get('p') or '').strip()
+            c = (r['_id'].get('c') or '').strip()
+            d = (r['_id'].get('d') or '').strip()
+            if not p:
+                continue
+            region.setdefault(p, {}).setdefault(c, set()).add(d)
+        result = []
+        for p, cities in region.items():
+            city_list = []
+            for c, districts in cities.items():
+                city_list.append({'city': c, 'districts': sorted([x for x in districts if x])})
+            result.append({'province': p, 'cities': city_list})
+        return _ok({'regions': result})
+    except PyMongoError as e:
+        logger.error(f"[行政区划] MongoDB 查询失败: {e}")
+        return _err('加载行政区划失败', 500)
+    finally:
+        if mongo_client:
+            mongo_client.close()
 
 
 # ====================================================================

@@ -178,7 +178,7 @@ def check_alerts():
                     # 查设备主人
                     cur.execute('''
                         SELECT u.open_id, u.email, u.phone
-                        FROM user_devices ud
+                        FROM devices ud
                         LEFT JOIN users u ON ud.open_id = u.open_id
                         WHERE ud.device_id = %s LIMIT 1
                     ''', (device_id,))

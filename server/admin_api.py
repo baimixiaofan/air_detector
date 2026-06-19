@@ -1040,8 +1040,8 @@ def create_device():
 
             cur.execute('''
                 INSERT INTO devices (device_id, name, location_name, longitude, latitude,
-                    activation_status, room_location, customer_id, district, product_model)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    activation_status, room_location, customer_id, district)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 device_id, name,
                 body.get('location_name', ''),
@@ -1049,8 +1049,7 @@ def create_device():
                 'manufactured',  # 默认：已出厂未激活
                 body.get('room_location', ''),
                 body.get('customer_id'),
-                body.get('district', ''),
-                body.get('product_model', '')
+                body.get('district', '')
             ))
             new_id = cur.lastrowid
         conn.commit()
@@ -1083,7 +1082,7 @@ def update_device(device_pk_id):
                 return jsonify({'code': 404, 'msg': '设备不存在'}), 404
 
             updatable = ['name', 'location_name', 'longitude', 'latitude', 'activation_status',
-                         'room_location', 'customer_id', 'district', 'product_model']
+                         'room_location', 'customer_id', 'district']
             fields = [f'{k}=%s' for k in updatable if k in body]
             params = [body[k] for k in updatable if k in body]
 
@@ -2532,7 +2531,7 @@ def get_poor_air_users():
             cur.execute('''
                 SELECT ud.device_id, ud.open_id, ud.room_location,
                        u.nickname, u.avatar_url
-                FROM user_devices ud
+                FROM devices ud
                 LEFT JOIN users u ON ud.open_id = u.open_id
             ''')
             user_map = {}
@@ -2656,7 +2655,7 @@ def export_poor_air_users():
         with conn.cursor() as cur:
             cur.execute('''
                 SELECT ud.device_id, u.nickname
-                FROM user_devices ud LEFT JOIN users u ON ud.open_id = u.open_id
+                FROM devices ud LEFT JOIN users u ON ud.open_id = u.open_id
             ''')
             user_map = {r['device_id']: r for r in cur.fetchall()}
 
@@ -2763,7 +2762,7 @@ def generate_enterprise_report():
             device_name_map = {}
             if device_ids:
                 ph = ','.join(['%s'] * len(device_ids))
-                cur.execute(f'SELECT device_id, name, district, product_model FROM devices WHERE device_id IN ({ph})', device_ids)
+                cur.execute(f'SELECT device_id, name, district FROM devices WHERE device_id IN ({ph})', device_ids)
                 for r in cur.fetchall():
                     device_name_map[r['device_id']] = r
     finally:
@@ -2890,7 +2889,8 @@ def generate_enterprise_report():
                 'device_id': did,
                 'device_name': info.get('name', ''),
                 'district': info.get('district', ''),
-                'product_model': info.get('product_model', ''),
+                'open_id': info.get('open_id'),
+                'customer_type': info.get('customer_type', 'individual'),
                 'avg_aqi': round(r.get('avg_aqi', 0) or 0, 1),
                 'max_aqi': round(r.get('max_aqi', 0) or 0, 1),
                 'min_aqi': round(r.get('min_aqi', 0) or 0, 1),
