@@ -962,8 +962,17 @@ def ai_analyze():
 def login():
     body = request.json or {}
     code = body.get('code', '')
+    nickname = (body.get('nickname') or '').strip()[:50] or None
+    avatar_url = (body.get('avatar_url') or '').strip()[:500] or None
+    gender = body.get('gender')
+    try:
+        gender = int(gender) if gender is not None and gender != '' else None
+        if gender is not None and gender not in (0, 1, 2):
+            gender = None
+    except (TypeError, ValueError):
+        gender = None
     client_ip = request.remote_addr
-    logger.info(f"[登录] 收到登录请求 - IP: {client_ip}")
+    logger.info(f"[登录] 收到登录请求 - IP: {client_ip}, nickname={nickname}, has_avatar={bool(avatar_url)}")
     if not code:
         logger.warning(f"[登录] 缺少 code 参数 - IP: {client_ip}")
         return _err('缺少 code 参数')
@@ -1003,22 +1012,124 @@ def login():
     try:
         conn = _get_mysql()
         cur = conn.cursor()
-        cur.execute('SELECT * FROM users WHERE open_id = %s', (open_id,))
+        cur.execute('SELECT id, open_id, nickname, avatar_url, gender, email, phone FROM users WHERE open_id = %s', (open_id,))
         user = cur.fetchone()
         if not user:
-            cur.execute('INSERT INTO users (open_id, nickname, avatar_url, create_time, update_time) '
-                        'VALUES (%s, %s, %s, NOW(), NOW())', (open_id, None, None))
+            cur.execute('INSERT INTO users (open_id, nickname, avatar_url, gender, last_login_ip, create_time, update_time) '
+                        'VALUES (%s, %s, %s, %s, %s, NOW(), NOW())',
+                        (open_id, nickname, avatar_url, gender, client_ip))
             conn.commit()
-            user = {'open_id': open_id, 'nickname': None, 'avatar_url': None}
-            logger.info(f"[登录] 新用户注册: {open_id}")
+            user = {'open_id': open_id, 'nickname': nickname, 'avatar_url': avatar_url, 'gender': gender, 'email': '', 'phone': ''}
+            logger.info(f"[登录] 新用户注册: {open_id}, nickname={nickname}")
         else:
-            logger.info(f"[登录] 老用户登录: {open_id}")
-        return _ok({'open_id': user['open_id'], 'nickname': user.get('nickname'), 'avatar_url': user.get('avatar_url')})
+            update_parts, update_vals = [], []
+            if nickname and not user.get('nickname'):
+                update_parts.append('nickname=%s'); update_vals.append(nickname)
+            if avatar_url and not user.get('avatar_url'):
+                update_parts.append('avatar_url=%s'); update_vals.append(avatar_url)
+            if gender is not None and not user.get('gender'):
+                update_parts.append('gender=%s'); update_vals.append(gender)
+            if update_parts:
+                update_parts.append('update_time=NOW()')
+                update_vals.append(open_id)
+                cur.execute(f'UPDATE users SET {", ".join(update_parts)} WHERE open_id=%s', update_vals)
+                conn.commit()
+                for k in ('nickname', 'avatar_url', 'gender'):
+                    if k in {'nickname', 'avatar_url', 'gender'} & {p.split('=')[0] for p in update_parts}:
+                        pass
+            cur.execute('UPDATE users SET last_login_ip=%s, last_login_at=NOW() WHERE open_id=%s', (client_ip, open_id))
+            conn.commit()
+            cur.execute('SELECT open_id, nickname, avatar_url, gender, email, phone FROM users WHERE open_id=%s', (open_id,))
+            user = cur.fetchone()
+            logger.info(f"[登录] 老用户登录: {open_id}, nickname={user.get('nickname')}")
+        return _ok({
+            'open_id': user['open_id'],
+            'nickname': user.get('nickname'),
+            'avatar_url': user.get('avatar_url'),
+            'gender': user.get('gender'),
+            'email': user.get('email') or '',
+            'phone': user.get('phone') or ''
+        })
     except pymysql.Error as e:
         if conn:
             conn.rollback()
         logger.error(f"[登录] 数据库操作失败: {e}")
         return _err('登录失败', 500)
+    finally:
+        if conn:
+            conn.close()
+
+
+# ====================================================================
+# 21b. 更新个人资料 /api/user/profile
+# ====================================================================
+
+@miniprogram.route('/api/user/profile', methods=['POST'])
+@miniprogram.route('/api/user/profile/update', methods=['POST'])
+def update_user_profile():
+    body = request.json or {}
+    open_id = body.get('open_id', '').strip()
+    if not open_id:
+        return _err('缺少 open_id 参数')
+
+    nickname = body.get('nickname')
+    avatar_url = body.get('avatar_url')
+    gender = body.get('gender')
+    email = body.get('email')
+    phone = body.get('phone')
+
+    fields, vals = [], []
+    if nickname is not None:
+        nickname = str(nickname).strip()[:50]
+        if nickname:
+            fields.append('nickname=%s'); vals.append(nickname)
+    if avatar_url is not None:
+        avatar_url = str(avatar_url).strip()[:500]
+        fields.append('avatar_url=%s'); vals.append(avatar_url if avatar_url else None)
+    if gender is not None:
+        try:
+            g = int(gender)
+            if g in (0, 1, 2):
+                fields.append('gender=%s'); vals.append(g)
+        except (TypeError, ValueError):
+            pass
+    if email is not None:
+        email = str(email).strip()[:100]
+        fields.append('email=%s'); vals.append(email)
+    if phone is not None:
+        phone = str(phone).strip()[:20]
+        fields.append('phone=%s'); vals.append(phone)
+
+    if not fields:
+        return _err('没有可更新的字段', 400)
+
+    conn = None
+    try:
+        conn = _get_mysql()
+        cur = conn.cursor()
+        cur.execute('SELECT id FROM users WHERE open_id=%s', (open_id,))
+        if not cur.fetchone():
+            cur.execute('INSERT INTO users (open_id, create_time, update_time) VALUES (%s, NOW(), NOW())', (open_id,))
+            conn.commit()
+        fields.append('update_time=NOW()')
+        vals.append(open_id)
+        cur.execute(f'UPDATE users SET {", ".join(fields)} WHERE open_id=%s', vals)
+        conn.commit()
+        cur.execute('SELECT open_id, nickname, avatar_url, gender, email, phone FROM users WHERE open_id=%s', (open_id,))
+        user = cur.fetchone()
+        return _ok({
+            'open_id': user['open_id'],
+            'nickname': user.get('nickname'),
+            'avatar_url': user.get('avatar_url'),
+            'gender': user.get('gender'),
+            'email': user.get('email') or '',
+            'phone': user.get('phone') or ''
+        })
+    except pymysql.Error as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"[更新资料] 数据库操作失败: {e}")
+        return _err('更新失败', 500)
     finally:
         if conn:
             conn.close()

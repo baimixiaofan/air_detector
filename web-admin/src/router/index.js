@@ -45,11 +45,13 @@ const routes = [
         meta: { roles: ['admin', 'ops', 'viewer'], title: '历史数据', icon: 'DataLine' }
       },
       {
-        path: 'customers',
-        name: 'Customers',
-        component: () => import('@/views/customers/CustomerList.vue'),
-        meta: { roles: ['admin', 'ops'], title: '客户管理', icon: 'UserFilled' }
+        path: 'users',
+        name: 'UserManagement',
+        component: () => import('@/views/users/UserManagement.vue'),
+        meta: { roles: ['admin', 'ops'], title: '用户管理', icon: 'UserFilled' }
       },
+      { path: 'customers', redirect: '/users?tab=customers' },
+      { path: 'wechat-users', redirect: '/users?tab=wechat' },
       {
         path: 'workorders',
         name: 'WorkOrders',

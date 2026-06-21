@@ -3,7 +3,7 @@ import { ElMessage } from 'element-plus'
 
 const request = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
-  timeout: 15000,
+  timeout: 30000,
   headers: { 'Content-Type': 'application/json' }
 })
 
@@ -30,7 +30,7 @@ request.interceptors.response.use(
       }
       ElMessage.error(data?.msg || '请求失败')
     } else {
-      ElMessage.error('网络连接失败')
+      ElMessage.error('网络连接失败，请检查网络或刷新重试')
     }
     return Promise.reject(error)
   }

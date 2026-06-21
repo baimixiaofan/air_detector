@@ -72,7 +72,7 @@
         <!-- 省份详情 -->
         <div v-else-if="!selectedCity" class="province-detail">
           <div class="panel-header">
-            <el-button text @click="backToProvince" class="back-btn"><el-icon><ArrowLeft /></el-icon>返回全国</el-button>
+            <el-button text @click="backToChina" class="back-btn"><el-icon><ArrowLeft /></el-icon>返回全国</el-button>
             <h3>{{ selectedProvince.name }}</h3>
           </div>
           <div class="province-stats">
@@ -269,7 +269,7 @@ function selectCity(city) {
   selectedCity.value = city
 }
 
-function backToProvince() {
+function backToChina() {
   selectedProvince.value = null
   selectedCity.value = null
   initChinaMap()

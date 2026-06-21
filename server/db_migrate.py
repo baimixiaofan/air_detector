@@ -38,6 +38,12 @@ add_column('users', 'email',
     "email VARCHAR(100) DEFAULT '' COMMENT '用户邮箱（用于告警通知）'")
 add_column('users', 'phone',
     "phone VARCHAR(20) DEFAULT '' COMMENT '用户手机号'")
+add_column('users', 'gender',
+    "gender TINYINT DEFAULT 0 COMMENT '性别: 0未知 1男 2女'")
+add_column('users', 'last_login_at',
+    "last_login_at DATETIME DEFAULT NULL COMMENT '最后登录时间'")
+add_column('users', 'last_login_ip',
+    "last_login_ip VARCHAR(64) DEFAULT NULL COMMENT '最后登录IP'")
 
 cur.close()
 conn.close()

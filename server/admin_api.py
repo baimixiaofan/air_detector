@@ -430,11 +430,11 @@ def dashboard_stats():
             activated = device_status.get('activated', 0)
             deactivated = device_status.get('deactivated', 0)
 
-            # 客户统计
-            cur.execute("SELECT COUNT(*) AS cnt FROM customers")
+            # 客户统计（已合并到 users 表）
+            cur.execute("SELECT COUNT(*) AS cnt FROM users WHERE source = 'admin_added'")
             total_customers = cur.fetchone()['cnt']
-            cur.execute("SELECT type, COUNT(*) AS cnt FROM customers GROUP BY type")
-            customer_types = {r['type']: r['cnt'] for r in cur.fetchall()}
+            cur.execute("SELECT customer_type, COUNT(*) AS cnt FROM users WHERE source = 'admin_added' GROUP BY customer_type")
+            customer_types = {r['customer_type']: r['cnt'] for r in cur.fetchall()}
 
             # 工单统计（损坏率 ≈ 未完成工单 / 总设备）
             cur.execute("SELECT COUNT(*) AS cnt FROM work_orders")
@@ -907,12 +907,41 @@ import os as _os
 DEVICE_CONFIG_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'device_config.json')
 
 def _load_device_config():
-    """读取 device_config.json"""
+    """读取 device_config.json，自动同步缺失的设备到 MySQL devices 表"""
     try:
         with open(DEVICE_CONFIG_PATH, 'r') as f:
-            return json.load(f).get('devices', [])
+            config_devices = json.load(f).get('devices', [])
     except Exception:
         return []
+
+    try:
+        conn = _get_mysql()
+        with conn.cursor() as cur:
+            for d in config_devices:
+                code = d.get('code', '')
+                if not code:
+                    continue
+                cur.execute('SELECT id FROM devices WHERE device_id=%s', (code,))
+                if cur.fetchone():
+                    continue
+                cur.execute('''INSERT INTO devices
+                    (device_id, name, location_name, longitude, latitude, activation_status, district, province, city, status, create_time)
+                    VALUES (%s, %s, %s, %s, %s, 'activated', %s, %s, %s, 1, NOW())''',
+                    (code, d.get('name', code),
+                     f"{d.get('province','')} {d.get('city','')} {d.get('district','')}".strip(),
+                     d.get('longitude'), d.get('latitude'),
+                     d.get('district', ''), d.get('province', ''), d.get('city', '')))
+                logger.info(f'[自动同步] 设备 {code} 已从配置同步到 MySQL')
+            conn.commit()
+    except Exception as e:
+        logger.warning(f'[自动同步] 同步 device_config 到 MySQL 失败: {e}')
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    return config_devices
 
 def _save_device_config(devices):
     """保存 device_config.json"""
@@ -950,9 +979,9 @@ def get_devices():
     try:
         with conn.cursor() as cur:
             cur.execute('''
-                SELECT d.*, c.name AS customer_name
+                SELECT d.*, u.nickname AS customer_name
                 FROM devices d
-                LEFT JOIN customers c ON d.customer_id = c.id
+                LEFT JOIN users u ON d.open_id = u.open_id AND u.source = 'admin_added'
                 ORDER BY d.id DESC
             ''')
             mysql_devices = cur.fetchall()
@@ -1038,17 +1067,24 @@ def create_device():
             count = cur.fetchone()['cnt'] + 1
             device_id = f'AQ-{today}-{count:03d}'
 
+            open_id = None
+            cid = body.get('customer_id')
+            if cid:
+                cur.execute("SELECT open_id FROM users WHERE id=%s AND source='admin_added'", (cid,))
+                row = cur.fetchone()
+                if row:
+                    open_id = row['open_id']
             cur.execute('''
                 INSERT INTO devices (device_id, name, location_name, longitude, latitude,
-                    activation_status, room_location, customer_id, district)
+                    activation_status, room_location, open_id, district)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 device_id, name,
                 body.get('location_name', ''),
                 body.get('longitude'), body.get('latitude'),
-                'manufactured',  # 默认：已出厂未激活
+                'manufactured',
                 body.get('room_location', ''),
-                body.get('customer_id'),
+                open_id,
                 body.get('district', '')
             ))
             new_id = cur.lastrowid
@@ -1082,9 +1118,18 @@ def update_device(device_pk_id):
                 return jsonify({'code': 404, 'msg': '设备不存在'}), 404
 
             updatable = ['name', 'location_name', 'longitude', 'latitude', 'activation_status',
-                         'room_location', 'customer_id', 'district']
+                         'room_location', 'district']
             fields = [f'{k}=%s' for k in updatable if k in body]
             params = [body[k] for k in updatable if k in body]
+            if 'customer_id' in body:
+                cid = body['customer_id']
+                if cid:
+                    cur.execute("SELECT open_id FROM users WHERE id=%s AND source='admin_added'", (cid,))
+                    row = cur.fetchone()
+                    if row:
+                        fields.append('open_id=%s'); params.append(row['open_id'])
+                else:
+                    fields.append('open_id=%s'); params.append(None)
 
             # 如果激活设备，记录激活时间
             if body.get('activation_status') == 'activated' and device.get('activation_status') != 'activated':
@@ -1826,9 +1871,9 @@ def get_rankings():
                     if all_devices:
                         ph = ','.join(['%s'] * len(all_devices))
                         cur.execute(f'''
-                            SELECT d.device_id, c.name AS customer_name, c.type AS customer_type
+                            SELECT d.device_id, COALESCE(u.nickname, u.contact_name) AS customer_name, u.customer_type
                             FROM devices d
-                            LEFT JOIN customers c ON d.customer_id = c.id
+                            LEFT JOIN users u ON d.open_id = u.open_id AND u.source = 'admin_added'
                             WHERE d.device_id IN ({ph})
                         ''', list(all_devices))
                         for row in cur.fetchall():
@@ -2216,6 +2261,139 @@ def update_company_info():
         conn.close()
 
     return jsonify({'code': 200, 'msg': '企业信息已更新'})
+
+
+# ====================================================================
+# 微信用户（小程序用户）管理 /api/admin/users/wechat
+# ====================================================================
+
+@admin_api.route('/users/wechat', methods=['GET'])
+@require_admin_auth
+def list_wechat_users():
+    page = max(1, int(request.args.get('page', 1)))
+    size = min(100, max(1, int(request.args.get('size', 20))))
+    offset = (page - 1) * size
+    keyword = (request.args.get('keyword') or '').strip()
+    has_profile = request.args.get('has_profile')
+
+    wheres, params = [], []
+    if keyword:
+        wheres.append('(u.nickname LIKE %s OR u.open_id LIKE %s OR u.phone LIKE %s OR u.email LIKE %s)')
+        kw = f'%{keyword}%'
+        params.extend([kw, kw, kw, kw])
+    if has_profile == '1':
+        wheres.append('(u.nickname IS NOT NULL AND u.nickname <> "")')
+    elif has_profile == '0':
+        wheres.append('(u.nickname IS NULL OR u.nickname = "")')
+    where_sql = (' WHERE ' + ' AND '.join(wheres)) if wheres else ''
+
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'SELECT COUNT(*) AS cnt FROM users u{where_sql}', params)
+            total = cur.fetchone()['cnt']
+            cur.execute(
+                f'''SELECT u.id, u.open_id, u.nickname, u.avatar_url, u.gender, u.email, u.phone,
+                           u.last_login_at, u.last_login_ip, u.create_time, u.update_time,
+                           (SELECT COUNT(*) FROM devices d WHERE d.open_id = u.open_id) AS device_count,
+                           (SELECT COUNT(*) FROM user_favorites f WHERE f.open_id = u.open_id) AS favorite_count,
+                           (SELECT COUNT(*) FROM user_alerts a WHERE a.open_id = u.open_id) AS alert_count
+                    FROM users u{where_sql}
+                    ORDER BY u.create_time DESC LIMIT %s OFFSET %s''',
+                params + [size, offset]
+            )
+            users = cur.fetchall()
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'data': {'list': users, 'total': total, 'page': page, 'size': size}})
+
+
+@admin_api.route('/users/wechat/<int:user_id>', methods=['GET'])
+@require_admin_auth
+def get_wechat_user(user_id):
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                '''SELECT u.id, u.open_id, u.nickname, u.avatar_url, u.gender, u.email, u.phone,
+                          u.last_login_at, u.last_login_ip, u.create_time, u.update_time,
+                          (SELECT COUNT(*) FROM devices d WHERE d.open_id = u.open_id) AS device_count,
+                          (SELECT COUNT(*) FROM user_favorites f WHERE f.open_id = u.open_id) AS favorite_count,
+                          (SELECT COUNT(*) FROM user_alerts a WHERE a.open_id = u.open_id) AS alert_count
+                   FROM users u WHERE u.id = %s''', (user_id,))
+            user = cur.fetchone()
+            if not user:
+                return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+            cur.execute(
+                'SELECT device_id, device_name, contact_name, room_location, province, city, district, customer_type, industry, bind_time '
+                'FROM devices WHERE open_id = %s ORDER BY bind_time DESC', (user['open_id'],))
+            devices = cur.fetchall()
+            cur.execute(
+                'SELECT device_id, create_time FROM user_favorites WHERE open_id = %s ORDER BY create_time DESC', (user['open_id'],))
+            favorites = cur.fetchall()
+    finally:
+        conn.close()
+    user['devices'] = devices
+    user['favorites'] = favorites
+    return jsonify({'code': 200, 'data': user})
+
+
+@admin_api.route('/users/wechat/<int:user_id>', methods=['PUT'])
+@require_admin_auth
+@require_role('admin', 'ops')
+def update_wechat_user(user_id):
+    body = request.json or {}
+    fields, vals = [], []
+    for key, col, length in (('nickname', 'nickname', 50), ('email', 'email', 100), ('phone', 'phone', 20)):
+        if key in body:
+            v = (str(body[key]) or '').strip()[:length]
+            fields.append(f'{col}=%s'); vals.append(v)
+    if 'gender' in body:
+        try:
+            g = int(body['gender'])
+            if g in (0, 1, 2):
+                fields.append('gender=%s'); vals.append(g)
+        except (TypeError, ValueError):
+            pass
+    if 'avatar_url' in body:
+        au = (str(body['avatar_url']) or '').strip()[:500]
+        fields.append('avatar_url=%s'); vals.append(au or None)
+    if not fields:
+        return jsonify({'code': 400, 'msg': '没有可更新的字段'})
+    fields.append('update_time=NOW()')
+    vals.append(user_id)
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f'UPDATE users SET {", ".join(fields)} WHERE id=%s', vals)
+            conn.commit()
+            _log_action('更新微信用户', 'users', user_id, body)
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '已更新'})
+
+
+@admin_api.route('/users/wechat/<int:user_id>', methods=['DELETE'])
+@require_admin_auth
+@require_role('admin')
+def delete_wechat_user(user_id):
+    conn = _get_mysql()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT open_id FROM users WHERE id=%s', (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return jsonify({'code': 404, 'msg': '用户不存在'}), 404
+            open_id = row['open_id']
+            cur.execute('DELETE FROM user_favorites WHERE open_id=%s', (open_id,))
+            cur.execute('DELETE FROM user_alerts WHERE open_id=%s', (open_id,))
+            cur.execute('UPDATE devices SET open_id=NULL, contact_name=NULL, device_name=NULL, bind_time=NULL WHERE open_id=%s', (open_id,))
+            cur.execute('DELETE FROM users WHERE id=%s', (user_id,))
+            conn.commit()
+            _log_action('删除微信用户', 'users', user_id, {'open_id': open_id})
+    finally:
+        conn.close()
+    return jsonify({'code': 200, 'msg': '已删除'})
 
 
 @admin_api.route('/users', methods=['GET'])
@@ -2735,14 +2913,13 @@ def generate_enterprise_report():
     try:
         with conn.cursor() as cur:
             if customer_id:
-                # 方案A：按客户ID查询名下设备
-                cur.execute('SELECT id, name, industry, contact_name, phone FROM customers WHERE id=%s', (customer_id,))
+                cur.execute("SELECT id, nickname AS name, industry, contact_name, phone FROM users WHERE id=%s AND source='admin_added'", (customer_id,))
                 customer_info = cur.fetchone() or {}
                 if not customer_info:
                     return jsonify({'code': 400, 'msg': '客户不存在'}), 400
                 company_name = customer_info.get('name', company_name)
 
-                cur.execute('SELECT device_id FROM devices WHERE customer_id=%s', (customer_id,))
+                cur.execute('SELECT device_id FROM devices WHERE open_id=(SELECT open_id FROM users WHERE id=%s)', (customer_id,))
                 device_ids = [r['device_id'] for r in cur.fetchall()]
                 if not device_ids:
                     return jsonify({'code': 400, 'msg': f'客户「{company_name}」未绑定任何设备，请先在设备管理中分配设备'}), 400
@@ -3190,7 +3367,7 @@ def preview_report(rid):
         try:
             conn2 = _get_mysql()
             with conn2.cursor() as cur:
-                cur.execute('SELECT id, name, industry, contact_name, phone FROM customers WHERE id=%s', (report['customer_id'],))
+                cur.execute("SELECT id, nickname AS name, industry, contact_name, phone FROM users WHERE id=%s AND source='admin_added'", (report['customer_id'],))
                 report['customer'] = cur.fetchone()
             conn2.close()
         except Exception:
@@ -3377,18 +3554,17 @@ def report_chart_data(rid):
 @admin_api.route('/customers', methods=['GET'])
 @require_admin_auth
 def list_customers():
-    """客户列表"""
+    """客户列表（统一用户表，source=admin_added 为 CRM 客户）"""
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
-            # 筛选
-            conditions = []
+            conditions = ["source = 'admin_added'"]
             params = []
             ctype = request.args.get('type')
             industry = request.args.get('industry')
             status = request.args.get('status')
             if ctype:
-                conditions.append('type = %s')
+                conditions.append('customer_type = %s')
                 params.append(ctype)
             if industry:
                 conditions.append('industry = %s')
@@ -3398,10 +3574,8 @@ def list_customers():
                 params.append(status)
 
             where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
-            cur.execute(f'SELECT * FROM customers {where} ORDER BY id DESC', params)
+            cur.execute(f"SELECT id, open_id, nickname AS name, customer_type AS type, contact_name, phone, email, address, industry, status, notes, create_time AS created_at, update_time AS updated_at, source FROM users {where} ORDER BY id DESC", params)
             customers = cur.fetchall()
-
-            # 统计每个客户的设备数（通过工单关联）
             for c in customers:
                 cur.execute('SELECT COUNT(*) AS cnt FROM work_orders WHERE customer_id = %s', (c['id'],))
                 row = cur.fetchone()
@@ -3414,18 +3588,18 @@ def list_customers():
 @admin_api.route('/customers/enterprise', methods=['GET'])
 @require_admin_auth
 def list_enterprise_customers():
-    """返回企业类型的客户列表（带设备数量），供报告选择器使用"""
+    """企业客户列表（含设备数），供报告选择器使用"""
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
             cur.execute('''
-                SELECT c.id, c.name, c.industry, c.contact_name, c.phone,
+                SELECT u.id, u.nickname AS name, u.industry, u.contact_name, u.phone,
                        COUNT(d.id) AS device_count
-                FROM customers c
-                LEFT JOIN devices d ON d.customer_id = c.id
-                WHERE c.type = 'enterprise' AND c.status = 'active'
-                GROUP BY c.id
-                ORDER BY c.name
+                FROM users u
+                LEFT JOIN devices d ON d.open_id = u.open_id
+                WHERE u.customer_type = 'enterprise' AND u.status = 'active' AND u.source = 'admin_added'
+                GROUP BY u.id
+                ORDER BY u.nickname
             ''')
             customers = cur.fetchall()
     finally:
@@ -3436,17 +3610,18 @@ def list_enterprise_customers():
 @admin_api.route('/customers', methods=['POST'])
 @require_admin_auth
 def create_customer():
-    """新增客户"""
+    """新增客户（写入 users 表，source=admin_added）"""
     data = request.get_json() or {}
     if not data.get('name'):
         return jsonify({'code': 400, 'msg': '客户名称不能为空'})
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
+            open_id = f'crm_new_{datetime.now().strftime("%Y%m%d%H%M%S%f")}'
             cur.execute('''
-                INSERT INTO customers (name, type, contact_name, phone, email, address, industry, status, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ''', (data['name'], data.get('type', 'enterprise'), data.get('contact_name', ''),
+                INSERT INTO users (open_id, nickname, customer_type, contact_name, phone, email, address, industry, status, notes, source, create_time, update_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'admin_added', NOW(), NOW())
+            ''', (open_id, data['name'], data.get('type', 'enterprise'), data.get('contact_name', ''),
                   data.get('phone', ''), data.get('email', ''), data.get('address', ''),
                   data.get('industry', ''), data.get('status', 'active'), data.get('notes', '')))
             cid = cur.lastrowid
@@ -3465,16 +3640,18 @@ def update_customer(cid):
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
+            field_map = {'name': 'nickname', 'type': 'customer_type'}
             fields = []
             values = []
             for k in ['name', 'type', 'contact_name', 'phone', 'email', 'address', 'industry', 'status', 'notes']:
                 if k in data:
-                    fields.append(f'{k} = %s')
+                    db_col = field_map.get(k, k)
+                    fields.append(f'{db_col} = %s')
                     values.append(data[k])
             if not fields:
                 return jsonify({'code': 400, 'msg': '无更新字段'})
             values.append(cid)
-            cur.execute(f'UPDATE customers SET {", ".join(fields)} WHERE id = %s', values)
+            cur.execute(f'UPDATE users SET {", ".join(fields)} WHERE id = %s', values)
         conn.commit()
     finally:
         conn.close()
@@ -3488,7 +3665,17 @@ def delete_customer(cid):
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
-            cur.execute('DELETE FROM customers WHERE id = %s', (cid,))
+            cur.execute("SELECT open_id FROM users WHERE id = %s AND source = 'admin_added'", (cid,))
+            row = cur.fetchone()
+            if not row:
+                return jsonify({'code': 404, 'msg': '客户不存在'}), 404
+            open_id = row['open_id']
+            cur.execute('UPDATE devices SET open_id=NULL, contact_name=NULL, device_name=NULL, bind_time=NULL WHERE open_id=%s', (open_id,))
+            cur.execute('DELETE FROM work_orders WHERE customer_id = %s', (cid,))
+            cur.execute('DELETE FROM user_favorites WHERE open_id = %s', (open_id,))
+            cur.execute('DELETE FROM user_alerts WHERE open_id = %s', (open_id,))
+            cur.execute('DELETE FROM intelligence_reports WHERE customer_id = %s', (cid,))
+            cur.execute('DELETE FROM users WHERE id = %s', (cid,))
         conn.commit()
     finally:
         conn.close()
@@ -3537,9 +3724,9 @@ def list_workorders():
 
             where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
             cur.execute(f'''
-                SELECT w.*, c.name AS customer_name
+                SELECT w.*, u.nickname AS customer_name
                 FROM work_orders w
-                LEFT JOIN customers c ON w.customer_id = c.id
+                LEFT JOIN users u ON w.customer_id = u.id
                 {where}
                 ORDER BY
                     CASE w.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
@@ -3791,12 +3978,12 @@ def get_vendor_stats():
             cur.execute("SELECT COUNT(*) AS cnt FROM devices WHERE create_time >= DATE_FORMAT(NOW(), '%%Y-%%m-01')")
             new_devices_month = cur.fetchone()['cnt']
 
-            # 客户数
-            cur.execute("SELECT COUNT(*) AS total FROM customers WHERE status = 'active'")
+            # 客户数（统一 users 表，admin_added 来源）
+            cur.execute("SELECT COUNT(*) AS total FROM users WHERE source='admin_added' AND status = 'active'")
             total_customers = cur.fetchone()['total']
 
             # 本月新增客户
-            cur.execute("SELECT COUNT(*) AS cnt FROM customers WHERE created_at >= DATE_FORMAT(NOW(), '%%Y-%%m-01')")
+            cur.execute("SELECT COUNT(*) AS cnt FROM users WHERE source='admin_added' AND create_time >= DATE_FORMAT(NOW(), '%%Y-%%m-01')")
             new_customers_month = cur.fetchone()['cnt']
 
             # 待处理工单

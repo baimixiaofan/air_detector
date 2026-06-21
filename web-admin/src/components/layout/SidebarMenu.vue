@@ -72,6 +72,7 @@ const allMenuItems = [
   { path: '/dashboard', title: '数据看板', icon: 'Monitor', roles: ['admin', 'ops', 'viewer'] },
   { path: '/map', title: '全国分布', icon: 'MapLocation', roles: ['admin', 'ops', 'viewer'] },
   { path: '/customers', title: '客户管理', icon: 'UserFilled', roles: ['admin', 'ops'] },
+  { path: '/wechat-users', title: '微信用户', icon: 'ChatDotRound', roles: ['admin', 'ops'] },
   { path: '/devices', title: '设备管理', icon: 'Cpu', roles: ['admin', 'ops', 'viewer'] },
   { path: '/workorders', title: '售后工单', icon: 'Tickets', roles: ['admin', 'ops'] },
   { path: '/analytics', title: '数据分析', icon: 'DataAnalysis', roles: ['admin', 'ops'] },
