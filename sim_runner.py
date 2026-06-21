@@ -125,7 +125,7 @@ def send_one(session, server, device_id, city, data):
     }
     r = session.post(server['url'], json=payload, headers=headers,
                      timeout=server.get('timeout', 5), verify=server.get('verify_ssl', False))
-    return r.status_code
+    return r.status_code, md5, payload
 
 
 def cmd_list_models(cfg):
@@ -200,12 +200,12 @@ def main():
                     continue
                 data = build_data(model, cfg.get('aqi_offset', 0))
                 try:
-                    code = send_one(session, cfg['server'], d['id'], d.get('city', ''), data)
+                    code, md5, payload = send_one(session, cfg['server'], d['id'], d.get('city', ''), data)
                     if cfg['show_per_device']:
                         aqi = data.get('AQI', '--')
                         pm25 = data.get('PM₂.₅', '--')
                         mark = 'OK' if code == 200 else f'ERR{code}'
-                        print(f"[{d['id']:12s}] {d['model']:22s} AQI={aqi:>5} PM2.5={pm25:>5} → {mark}")
+                        print(f"[{d['id']:12s}] {d['model']:22s} AQI={aqi:>5} PM2.5={pm25:>5} → {mark}  MD5={md5[:16]}...")
                     if code == 200: ok += 1
                     else: fail += 1
                 except Exception as e:

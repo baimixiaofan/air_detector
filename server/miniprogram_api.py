@@ -162,12 +162,14 @@ def receive_air_quality_data():
             return jsonify({"error": err_msg}), 400
 
         received_md5 = request.headers.get('X-Content-MD5')
+        md5_ok = False
         if received_md5:
             calc_md5 = hashlib.md5(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
-            if received_md5 != calc_md5:
+            md5_ok = received_md5 == calc_md5
+            if not md5_ok:
                 return jsonify({"error": "数据完整性验证失败：MD5哈希不匹配"}), 400
 
-        logger.info(f"[{now}] 来源IP: {client_ip} - 数据: {data.get('data', {})}")
+        logger.info(f"[{now}] 来源IP: {client_ip} - MD5={received_md5 or '无'} - 数据: {data.get('data', {})}")
 
         if _srv.redis_client:
             # 统一字段名：Unicode → ASCII
@@ -1236,7 +1238,8 @@ def bind_device():
         cur.execute('SELECT id, open_id FROM devices WHERE device_id=%s', (device_id,))
         row = cur.fetchone()
         if row:
-            if row['open_id'] is not None and row['open_id'] != open_id:
+            existing = row['open_id']
+            if existing is not None and existing != open_id and not existing.startswith('crm_'):
                 return _err('该设备已被其他用户绑定', 400)
             # 更新绑定信息
             cur.execute('''UPDATE devices SET open_id=%s, room_location=%s, device_name=%s, province=%s, city=%s, district=%s,

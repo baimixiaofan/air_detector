@@ -1051,22 +1051,31 @@ def get_device_detail(device_pk_id):
 @admin_api.route('/devices', methods=['POST'])
 @require_admin_auth
 def create_device():
-    """新增设备（自动生成设备编码 + 生命周期管理）"""
+    """新增设备（可自定设备编码，留空则自动生成）"""
     from datetime import datetime
     body = request.json or {}
     name = body.get('name', '').strip()
     if not name:
         return jsonify({'code': 400, 'msg': '设备名称不能为空'}), 400
 
-    # 自动生成设备编码：AQ-YYYYMMDD-NNN
-    today = datetime.now().strftime('%Y%m%d')
+    # 设备编码：手动指定或自动生成
+    custom_id = (body.get('device_id') or '').strip()
+    if custom_id:
+        device_id = custom_id
+    else:
+        today = datetime.now().strftime('%Y%m%d')
+        conn = _get_mysql()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS cnt FROM devices WHERE device_id LIKE %s", (f'AQ-{today}-%',))
+                device_id = f'AQ-{today}-{cur.fetchone()["cnt"] + 1:03d}'
+        finally:
+            conn.close()
+
+    # 写入 MySQL
     conn = _get_mysql()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) AS cnt FROM devices WHERE device_id LIKE %s", (f'AQ-{today}-%',))
-            count = cur.fetchone()['cnt'] + 1
-            device_id = f'AQ-{today}-{count:03d}'
-
             open_id = None
             cid = body.get('customer_id')
             if cid:

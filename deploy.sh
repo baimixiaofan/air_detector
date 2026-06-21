@@ -61,17 +61,35 @@ else
 fi
 
 echo "============================"
-echo "5. 重启 Flask 服务"
+echo "5. 重启所有服务"
 echo "============================"
-ssh $SERVER "systemctl restart flask_api"
-sleep 2
-if ssh $SERVER "systemctl is-active --quiet flask_api"; then
-    echo "✅ Flask API 启动成功"
-else
-    echo "❌ Flask API 启动失败，请检查日志："
-    echo "   ssh $SERVER 'journalctl -u flask_api -n 20'"
+ssh $SERVER "
+  # 停止旧进程
+  pkill -f 'flask_api_server.py' 2>/dev/null || true
+  pkill -f 'consumer.py' 2>/dev/null || true
+  pkill -f 'daily_stats_job.py' 2>/dev/null || true
+  sleep 2
+
+  cd $REMOTE_FLASK
+
+  # 启动 Flask
+  nohup python3 flask_api_server.py > flask_output.log 2>&1 &
+  sleep 2
+  if pgrep -f flask_api_server.py > /dev/null; then
+    echo '✅ Flask API 启动成功'
+  else
+    echo '❌ Flask API 启动失败'
     exit 1
-fi
+  fi
+
+  # 启动 Consumer
+  nohup python3 consumer.py > consumer.log 2>&1 &
+  echo '✅ Consumer 已启动'
+
+  # 启动日统计
+  nohup python3 daily_stats_job.py > daily_stats.log 2>&1 &
+  echo '✅ 日统计任务已启动'
+"
 
 echo ""
 echo "============================"

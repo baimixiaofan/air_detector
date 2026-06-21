@@ -42,9 +42,14 @@
         <el-form-item label="设备名称" required>
           <el-input v-model="form.name" placeholder="如：办公室监测仪" />
         </el-form-item>
-        <div v-if="!isEdit" class="device-id-hint">
-          保存后将自动生成设备编码（AQ-YYYYMMDD-NNN），用户可在小程序中绑定设备并获取位置信息
-        </div>
+        <template v-if="!isEdit">
+          <el-form-item label="设备编码">
+            <el-input v-model="form.device_id" placeholder="留空则自动生成（AQ-YYYYMMDD-NNN）" />
+          </el-form-item>
+          <div class="device-id-hint">
+            填写自定义编码则不自动生成。用户可在小程序中绑定设备并获取位置信息
+          </div>
+        </template>
         <template v-if="isEdit">
           <el-form-item label="位置">
             <el-input v-model="form.district" placeholder="区/县（用户绑定后自动填充）" />
@@ -99,7 +104,7 @@ const isEdit = ref(false)
 const filters = ref({ keyword: '' })
 
 const form = ref({
-  name: '', district: '', room_location: '',
+  name: '', device_id: '', district: '', room_location: '',
   customer_id: null, latitude: null, longitude: null, _id: null
 })
 
@@ -132,7 +137,7 @@ async function fetchData() {
 
 function handleAdd() {
   isEdit.value = false
-  form.value = { name: '', district: '', room_location: '', customer_id: null, latitude: null, longitude: null, _id: null }
+  form.value = { name: '', device_id: '', district: '', room_location: '', customer_id: null, latitude: null, longitude: null, _id: null }
   dialogVisible.value = true
 }
 
