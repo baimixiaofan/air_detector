@@ -1,23 +1,11 @@
 """
-空气质量模拟器 — 本地版，全国58个设备同时模拟
+空气质量模拟器 — 本地版（型号驱动）
+- 读取 sim_config.json（设备型号 + 设备列表 + 服务器配置）
+- 每台设备按其型号的参数范围生成数据
+- 命令行参数可覆盖配置
 """
-import json, time, hashlib, random, requests
-
-API_URL = 'https://47.109.191.13/api/air-quality'
-API_KEY = '111'
-
-CITY_AQI = {
-    '北京朝阳': (75, 40), '北京海淀': (72, 38), '天津滨海': (70, 38),
-    '上海浦东': (55, 28), '石家庄': (85, 48), '南京': (60, 32),
-    '杭州': (50, 25), '合肥': (62, 33), '福州': (40, 20),
-    '济南': (68, 36), '广州': (48, 24), '深圳': (42, 22),
-    '南宁': (45, 23), '海口': (32, 16), '武汉': (62, 33),
-    '长沙': (58, 30), '郑州': (72, 38), '成都': (72, 38),
-    '贵阳': (48, 25), '昆明': (38, 20), '西安': (78, 42),
-    '兰州': (80, 44), '沈阳': (70, 38),
-    '重庆渝中': (65, 34), '重庆江北': (62, 32), '重庆南岸': (60, 31),
-    '重庆渝北': (58, 30), '重庆九龙坡': (68, 36), '重庆沙坪坝': (63, 33),
-}
+import json, time, hashlib, random, sys, os, argparse, requests, urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 CITY_LOC = {
     '北京朝阳': ('北京市','北京市','朝阳区'), '北京海淀': ('北京市','北京市','海淀区'),
@@ -35,45 +23,206 @@ CITY_LOC = {
     '重庆渝中': ('重庆市','重庆市','渝中区'), '重庆江北': ('重庆市','重庆市','江北区'),
     '重庆南岸': ('重庆市','重庆市','南岸区'), '重庆渝北': ('重庆市','重庆市','渝北区'),
     '重庆九龙坡': ('重庆市','重庆市','九龙坡区'), '重庆沙坪坝': ('重庆市','重庆市','沙坪坝区'),
+    '重庆大渡口': ('重庆市','重庆市','大渡口区'), '重庆巴南': ('重庆市','重庆市','巴南区'),
+    '重庆北碚': ('重庆市','重庆市','北碚区'),
 }
 
-# 生成全部设备ID
-DEVICES = []
-for city in CITY_AQI:
-    for i in (1, 2):
-        DEVICES.append((f"SIM_{city}_{i}", city))
+SENSOR_FIELD_MAP = {
+    'AQI':   'AQI',
+    'PM2.5': 'PM₂.₅',
+    'PM10':  'PM₁₀',
+    'NO2':   'NO₂',
+    'SO2':   'SO₂',
+    'O3':    'O₃',
+    'CO':    'CO',
+}
 
-print(f"启动 {len(DEVICES)} 个模拟设备，每轮约 {len(DEVICES) * 5} 秒")
-print(f"目标: {API_URL}")
-print("按 Ctrl+C 停止\n")
+DEFAULT_CONFIG = {
+    "server": {
+        "url": "https://47.109.191.13/api/air-quality",
+        "api_key": "111",
+        "verify_ssl": False,
+        "timeout": 5
+    },
+    "device_models": {},
+    "devices": [],
+    "interval_seconds": 10,
+    "max_rounds": 0,
+    "show_per_device": True,
+    "show_round_summary": True,
+    "aqi_offset": 0,
+    "model_filter": "",
+    "city_filter": "",
+}
 
-while True:
-    for device_id, city_name in DEVICES:
-        base = CITY_AQI.get(city_name, (60, 30))
-        loc = CITY_LOC.get(city_name, ('','',''))
-        
-        aqi = max(10, min(250, base[0] + random.randint(-20, 30)))
-        pm25 = max(3, min(150, base[1] + random.randint(-10, 15)))
-        no2 = max(3, min(80, int(aqi * 0.4 + random.randint(-5, 10))))
-        so2 = max(1, min(40, int(aqi * 0.12 + random.randint(-2, 5))))
-        o3 = max(3, min(100, int(aqi * 0.6 + random.randint(-5, 15))))
 
-        payload = {
-            "device_id": device_id,
-            "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
-            "data": {"AQI": aqi, "PM₂.₅": pm25, "NO₂": no2, "SO₂": so2, "O₃": o3},
-            "location": {"province": loc[0], "city": loc[1], "district": loc[2]},
-            "user": {"name": "监控用户", "industry": "办公"}
-        }
+def load_config(path):
+    if not os.path.exists(path):
+        print(f'找不到配置文件 {path}')
+        print('请用 --init 生成示例配置，或使用 --list-models / --example 命令')
+        sys.exit(1)
+    with open(path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
-        md5 = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-        headers = {'X-API-Key': API_KEY, 'X-Content-MD5': md5, 'Content-Type': 'application/json'}
 
-        try:
-            r = requests.post(API_URL, json=payload, headers=headers, timeout=5, verify=False)
-            print(f"[{device_id:22s}] AQI={aqi:3d} PM2.5={pm25:2d} → {r.status_code}")
-        except Exception as e:
-            print(f"[{device_id:22s}] 失败: {e}")
+def merge_args(cfg, args):
+    if args.url: cfg['server']['url'] = args.url
+    if args.api_key: cfg['server']['api_key'] = args.api_key
+    if args.interval is not None: cfg['interval_seconds'] = args.interval
+    if args.rounds is not None: cfg['max_rounds'] = args.rounds
+    if args.aqi_offset is not None: cfg['aqi_offset'] = args.aqi_offset
+    if args.model: cfg['model_filter'] = args.model
+    if args.city: cfg['city_filter'] = args.city
+    if args.no_per_device: cfg['show_per_device'] = False
+    if args.no_summary: cfg['show_round_summary'] = False
+    return cfg
 
-    print(f"--- 一轮完成（{len(DEVICES)} 台），10 秒后下一轮 ---\n")
-    time.sleep(10)
+
+def filter_devices(devices, model_filter, city_filter):
+    out = []
+    for d in devices:
+        if model_filter and d.get('model') != model_filter:
+            continue
+        if city_filter and city_filter not in d.get('city', ''):
+            continue
+        out.append(d)
+    return out
+
+
+def gen_value(rng, jitter, offset=0):
+    lo, hi = rng
+    base = random.uniform(lo, hi)
+    base += offset
+    if jitter:
+        base += random.uniform(-jitter, jitter)
+    return max(0, round(base, 1))
+
+
+def build_data(model, aqi_offset):
+    data = {}
+    jitter = model.get('jitter', 15)
+    for sensor, rng in model.get('ranges', {}).items():
+        offset = aqi_offset if sensor == 'AQI' else 0
+        value = gen_value(rng, jitter, offset)
+        data[SENSOR_FIELD_MAP.get(sensor, sensor)] = value
+    return data
+
+
+def send_one(session, server, device_id, city, data):
+    loc = CITY_LOC.get(city, ('', '', ''))
+    payload = {
+        "device_id": device_id,
+        "timestamp": time.strftime('%Y-%m-%d %H:%M:%S'),
+        "data": data,
+        "location": {"province": loc[0], "city": loc[1], "district": loc[2]},
+        "user": {"name": "演示用户", "industry": "办公"}
+    }
+    md5 = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+    headers = {
+        'X-API-Key': server['api_key'],
+        'X-Content-MD5': md5,
+        'Content-Type': 'application/json',
+    }
+    r = session.post(server['url'], json=payload, headers=headers,
+                     timeout=server.get('timeout', 5), verify=server.get('verify_ssl', False))
+    return r.status_code
+
+
+def cmd_list_models(cfg):
+    print('设备型号：')
+    for name, m in cfg.get('device_models', {}).items():
+        sensors = ', '.join(m.get('sensors', []))
+        print(f'  · {name:24s} {m.get("description", ""):30s}  [{sensors}]')
+    print(f'\n设备总数：{len(cfg.get("devices", []))}')
+    cities = {d.get("city") for d in cfg.get("devices", [])}
+    print(f'城市数：{len(cities)}')
+
+
+def main():
+    parser = argparse.ArgumentParser(description='本地空气质量模拟器（型号驱动）')
+    parser.add_argument('--config', default='sim_config.json', help='配置文件路径')
+    parser.add_argument('--url', help='API 地址')
+    parser.add_argument('--api-key', help='API Key')
+    parser.add_argument('--interval', type=int, help='每轮间隔秒数')
+    parser.add_argument('--rounds', type=int, help='最大轮数（0=无限）')
+    parser.add_argument('--aqi-offset', type=int, help='AQI 偏移量（演示污染用）')
+    parser.add_argument('--model', help='只跑指定型号的设备，如 AQ-Pro-2000')
+    parser.add_argument('--city', help='只跑指定城市的设备（包含匹配），如 重庆')
+    parser.add_argument('--no-per-device', action='store_true')
+    parser.add_argument('--no-summary', action='store_true')
+    parser.add_argument('--list-models', action='store_true', help='列出所有型号和设备并退出')
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+
+    if args.list_models:
+        cmd_list_models(cfg)
+        return
+
+    cfg = merge_args(cfg, args)
+    models = cfg.get('device_models', {})
+    devices = cfg.get('devices', [])
+
+    if not models or not devices:
+        print('配置中缺少 device_models 或 devices 字段')
+        return
+
+    filtered = filter_devices(devices, cfg.get('model_filter', ''), cfg.get('city_filter', ''))
+    if not filtered:
+        print('筛选后没有设备')
+        return
+
+    print('=' * 70)
+    print(f'  设备数: {len(filtered)}    型号数: {len(set(d["model"] for d in filtered))}')
+    print(f'  服务器: {cfg["server"]["url"]}')
+    print(f'  间隔:   {cfg["interval_seconds"]}s    最大轮次: {cfg["max_rounds"] or "无限"}')
+    if cfg.get('aqi_offset'):
+        print(f'  AQI 偏移: {cfg["aqi_offset"]:+d}')
+    if cfg.get('model_filter'):
+        print(f'  筛选型号: {cfg["model_filter"]}')
+    if cfg.get('city_filter'):
+        print(f'  筛选城市: {cfg["city_filter"]}')
+    print('=' * 70)
+    print('按 Ctrl+C 停止\n')
+
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'sim-runner/3.0'})
+
+    round_no = 0
+    try:
+        while True:
+            round_no += 1
+            ok = fail = 0
+            for d in filtered:
+                model = models.get(d['model'])
+                if not model:
+                    fail += 1
+                    continue
+                data = build_data(model, cfg.get('aqi_offset', 0))
+                try:
+                    code = send_one(session, cfg['server'], d['id'], d.get('city', ''), data)
+                    if cfg['show_per_device']:
+                        aqi = data.get('AQI', '--')
+                        pm25 = data.get('PM₂.₅', '--')
+                        mark = 'OK' if code == 200 else f'ERR{code}'
+                        print(f"[{d['id']:12s}] {d['model']:22s} AQI={aqi:>5} PM2.5={pm25:>5} → {mark}")
+                    if code == 200: ok += 1
+                    else: fail += 1
+                except Exception as e:
+                    fail += 1
+                    if cfg['show_per_device']:
+                        print(f"[{d['id']:12s}] 异常: {e}")
+
+            if cfg['show_round_summary']:
+                print(f'--- 第 {round_no} 轮：成功 {ok} / 失败 {fail} / 间隔 {cfg["interval_seconds"]}s ---\n')
+
+            if cfg['max_rounds'] and round_no >= cfg['max_rounds']:
+                print(f'已完成 {cfg["max_rounds"]} 轮，自动退出')
+                break
+            time.sleep(cfg['interval_seconds'])
+    except KeyboardInterrupt:
+        print('\n已停止')
+
+
+if __name__ == '__main__':
+    main()

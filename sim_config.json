@@ -1,0 +1,78 @@
+{
+  "server": {
+    "url": "https://47.109.191.13/api/air-quality",
+    "api_key": "111",
+    "verify_ssl": false,
+    "timeout": 5
+  },
+  "device_models": {
+    "AQ-Basic-100": {
+      "description": "基础款 · 2 项传感器",
+      "sensors": ["AQI", "PM2.5"],
+      "ranges": {
+        "AQI": [40, 90],
+        "PM2.5": [20, 50]
+      },
+      "jitter": 12
+    },
+    "AQ-Pro-2000": {
+      "description": "专业款 · 5 项传感器",
+      "sensors": ["AQI", "PM2.5", "NO2", "SO2", "O3"],
+      "ranges": {
+        "AQI": [50, 110],
+        "PM2.5": [25, 60],
+        "NO2": [20, 50],
+        "SO2": [5, 15],
+        "O3": [30, 70]
+      },
+      "jitter": 18
+    },
+    "AQ-Industrial-5000": {
+      "description": "工业款 · 6 项传感器（高精度）",
+      "sensors": ["AQI", "PM2.5", "NO2", "SO2", "O3", "PM10"],
+      "ranges": {
+        "AQI": [80, 200],
+        "PM2.5": [40, 120],
+        "PM10": [60, 180],
+        "NO2": [30, 80],
+        "SO2": [10, 30],
+        "O3": [40, 100]
+      },
+      "jitter": 25
+    }
+  },
+  "devices": [
+    { "id": "DEV_BJ_001", "model": "AQ-Pro-2000",     "city": "北京朝阳" },
+    { "id": "DEV_BJ_002", "model": "AQ-Basic-100",    "city": "北京海淀" },
+    { "id": "DEV_TJ_001", "model": "AQ-Basic-100",    "city": "天津滨海" },
+    { "id": "DEV_SH_001", "model": "AQ-Pro-2000",     "city": "上海浦东" },
+    { "id": "DEV_SJZ_01", "model": "AQ-Industrial-5000", "city": "石家庄" },
+    { "id": "DEV_NJ_001", "model": "AQ-Pro-2000",     "city": "南京" },
+    { "id": "DEV_HZ_001", "model": "AQ-Basic-100",    "city": "杭州" },
+    { "id": "DEV_HF_001", "model": "AQ-Basic-100",    "city": "合肥" },
+    { "id": "DEV_FZ_001", "model": "AQ-Basic-100",    "city": "福州" },
+    { "id": "DEV_JN_001", "model": "AQ-Industrial-5000", "city": "济南" },
+    { "id": "DEV_GZ_001", "model": "AQ-Pro-2000",     "city": "广州" },
+    { "id": "DEV_SZ_001", "model": "AQ-Pro-2000",     "city": "深圳" },
+    { "id": "DEV_WH_001", "model": "AQ-Basic-100",    "city": "武汉" },
+    { "id": "DEV_CS_001", "model": "AQ-Basic-100",    "city": "长沙" },
+    { "id": "DEV_ZZ_001", "model": "AQ-Industrial-5000", "city": "郑州" },
+    { "id": "DEV_CD_001", "model": "AQ-Pro-2000",     "city": "成都" },
+    { "id": "DEV_KM_001", "model": "AQ-Basic-100",    "city": "昆明" },
+    { "id": "DEV_XA_001", "model": "AQ-Industrial-5000", "city": "西安" },
+    { "id": "DEV_SY_001", "model": "AQ-Industrial-5000", "city": "沈阳" },
+    { "id": "DEV_CQ_001", "model": "AQ-Industrial-5000", "city": "重庆渝中" },
+    { "id": "DEV_CQ_002", "model": "AQ-Industrial-5000", "city": "重庆江北" },
+    { "id": "DEV_CQ_003", "model": "AQ-Pro-2000",     "city": "重庆南岸" },
+    { "id": "DEV_CQ_004", "model": "AQ-Pro-2000",     "city": "重庆渝北" },
+    { "id": "DEV_CQ_005", "model": "AQ-Basic-100",    "city": "重庆九龙坡" },
+    { "id": "DEV_CQ_006", "model": "AQ-Basic-100",    "city": "重庆沙坪坝" },
+    { "id": "DEV_CQ_007", "model": "AQ-Industrial-5000", "city": "重庆大渡口" },
+    { "id": "DEV_CQ_008", "model": "AQ-Pro-2000",     "city": "重庆巴南" },
+    { "id": "DEV_CQ_009", "model": "AQ-Basic-100",    "city": "重庆北碚" }
+  ],
+  "interval_seconds": 10,
+  "max_rounds": 0,
+  "show_per_device": true,
+  "show_round_summary": true
+}

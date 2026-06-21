@@ -1136,6 +1136,71 @@ def update_user_profile():
 
 
 # ====================================================================
+# 21c. 绑定手机号 /api/user/bind-phone
+# ====================================================================
+
+@miniprogram.route('/api/user/bind-phone', methods=['POST'])
+def bind_phone():
+    body = request.json or {}
+    open_id = body.get('open_id', '').strip()
+    phone_code = body.get('phone_code', '').strip()
+    if not open_id:
+        return _err('缺少 open_id 参数')
+    if not phone_code:
+        return _err('缺少 phone_code 参数')
+
+    phone_number = None
+    if not WECHAT_APPID or not WECHAT_SECRET:
+        phone_number = f'dev_{open_id[-8:]}'
+        logger.info(f"[绑定手机] 开发模式，生成模拟手机号: {phone_number}")
+    else:
+        try:
+            token_resp = _requests.get(
+                'https://api.weixin.qq.com/cgi-bin/token',
+                params={'grant_type': 'client_credential', 'appid': WECHAT_APPID, 'secret': WECHAT_SECRET},
+                timeout=10
+            )
+            token_data = token_resp.json()
+            access_token = token_data.get('access_token')
+            if not access_token:
+                logger.error(f"[绑定手机] 获取 access_token 失败: {token_data}")
+                return _err('获取 access_token 失败', 500)
+
+            phone_resp = _requests.post(
+                f'https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token={access_token}',
+                json={'code': phone_code},
+                timeout=10
+            )
+            phone_data = phone_resp.json()
+            if phone_data.get('errcode') != 0:
+                logger.error(f"[绑定手机] 微信返回异常: {phone_data}")
+                return _err('获取手机号失败', 500)
+            phone_number = phone_data.get('phone_info', {}).get('purePhoneNumber', '')
+            if not phone_number:
+                return _err('获取手机号失败', 500)
+            logger.info(f"[绑定手机] 成功获取手机号: {phone_number[:3]}****{phone_number[-4:]}")
+        except Exception as e:
+            logger.error(f"[绑定手机] 调用微信接口失败: {e}")
+            return _err('获取手机号失败', 500)
+
+    conn = None
+    try:
+        conn = _get_mysql()
+        cur = conn.cursor()
+        cur.execute('UPDATE users SET phone=%s, update_time=NOW() WHERE open_id=%s', (phone_number, open_id))
+        conn.commit()
+        return _ok({'phone': phone_number})
+    except pymysql.Error as e:
+        if conn:
+            conn.rollback()
+        logger.error(f"[绑定手机] 数据库操作失败: {e}")
+        return _err('绑定失败', 500)
+    finally:
+        if conn:
+            conn.close()
+
+
+# ====================================================================
 # 22-24. 设备绑定 /api/devices/*
 # ====================================================================
 
